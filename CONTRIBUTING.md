@@ -21,6 +21,18 @@ This project adheres to ethical cybersecurity practices and responsible disclosu
 - Follow responsible disclosure practices for any vulnerabilities discovered
 - Respect the intellectual property rights of VXControl and other contributors
 - Maintain professional conduct in all interactions with the community
+- **Comply with [Terms of Service](TERMS_OF_SERVICE.md)** when testing or using cloud services
+
+## Important Legal Notice
+
+⚠️ **Before contributing or testing cloud integration features, read the [Terms of Service](TERMS_OF_SERVICE.md).**
+
+This SDK provides access to sensitive cybersecurity capabilities through cloud services. Contributors must understand and comply with legal and ethical requirements for:
+- Working with threat intelligence and vulnerability data
+- Testing AI-powered troubleshooting features with anonymized data
+- Handling computational resources and security analysis tools
+
+All contributions involving cloud services integration must align with authorized, defensive cybersecurity purposes only.
 
 ## How to Contribute
 

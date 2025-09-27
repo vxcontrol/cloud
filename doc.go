@@ -178,8 +178,37 @@
 //
 // # License
 //
-// This software is provided under a proprietary license. Commercial licenses are
-// available for enterprise use. Contact info@vxcontrol.com for pricing and terms.
-//
 // Copyright (c) 2025 VXControl LLC. All rights reserved.
+//
+// This software is licensed under **GNU Affero General Public License v3.0 (AGPL-3.0)** with specific exceptions.
+//
+// Open Source Use:
+//
+//	Free for open source projects under AGPL-3.0 terms
+//	Academic research and education
+//	Non-commercial projects
+//
+// Commercial Use:
+//
+//	Commercial/proprietary use requires a separate license
+//	Enterprise licenses available - Contact info@vxcontrol.com
+//
+// Special Exception:
+//
+//	Official PentAGI project has a specific licensing exception - see LICENSE for details.
+//
+// # Terms of Service
+//
+// Important: Using VXControl Cloud Services requires compliance with Terms of Service.
+//
+// The SDK provides access to sensitive cybersecurity data, threat intelligence,
+// vulnerability information, and AI-powered assistance. Use of cloud services and
+// obtained data is governed by separate Terms of Service that require:
+//
+//	Authorized security testing and defensive cybersecurity only
+//	Compliance with applicable laws and ethical standards
+//	Responsible handling of sensitive information
+//	No unauthorized access or malicious activities
+//
+// Before using cloud services, read: TERMS_OF_SERVICE.md
 package cloud

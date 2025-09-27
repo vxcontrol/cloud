@@ -638,10 +638,41 @@ The VXControl Cloud Platform is actively expanding. Future releases may include:
 - **Enterprise Support**: support@vxcontrol.com
 - **Community**: [Discord](https://discord.gg/2xrMh7qX6m) and [Telegram](https://t.me/+Ka9i6CNwe71hMWQy)
 
-## License
+## License and Terms
+
+### SDK License
 
 Copyright (c) 2025 VXControl LLC. All rights reserved.
 
-This software is provided under a proprietary license. See [LICENSE](LICENSE) file for details.
+The **SDK code** is licensed under **GNU Affero General Public License v3.0 (AGPL-3.0)** with specific exceptions:
 
-Commercial licenses available for enterprise use. Contact info@vxcontrol.com for pricing.
+**Open Source Use:**
+- **Free for open source projects** under AGPL-3.0 terms  
+- **Academic research and education**  
+- **Non-commercial projects**
+
+**Commercial Use:**  
+- **Commercial/proprietary use requires a separate license**  
+- **Enterprise licenses available** - Contact info@vxcontrol.com
+
+**Special Exception:**  
+- **Official PentAGI project** has a specific licensing exception - see [LICENSE](LICENSE) for details.
+
+### Cloud Services Terms
+
+⚠️ **Important:** Using VXControl Cloud Services requires compliance with additional terms.
+
+The SDK provides access to **sensitive cybersecurity data**, **threat intelligence**, **vulnerability information**, and **AI-powered assistance**. Use of these cloud services and obtained data is governed by our [Terms of Service](TERMS_OF_SERVICE.md).
+
+**Cloud services may ONLY be used for:**
+- ✅ Defensive cybersecurity and authorized security testing
+- ✅ Academic research and education in controlled environments  
+- ✅ Incident response and compliance assessment
+- ❌ **Prohibited:** Unauthorized access, malicious activities, or illegal purposes
+
+📋 **Before using cloud services, read:** [TERMS_OF_SERVICE.md](TERMS_OF_SERVICE.md)
+
+### Contact
+
+For licensing questions: **info@vxcontrol.com**  
+For Terms of Service violations: **info@vxcontrol.com** (Subject: "Cloud Services Terms")

@@ -57,6 +57,20 @@ All API endpoints require:
 - **Forward Secrecy**: Daily server key rotation with deterministic derivation
 - **Data Anonymization**: Mandatory PII/secrets masking for all AI troubleshooting requests
 
+## Terms of Service Compliance
+
+⚠️ **Important Legal Notice:** Access to VXControl Cloud Platform services requires compliance with [Terms of Service](TERMS_OF_SERVICE.md).
+
+The platform provides access to sensitive cybersecurity capabilities including:
+- **Threat Intelligence**: IOC/IOA databases and real-time threat analysis
+- **Vulnerability Data**: CVE databases, exploit information, and security assessments  
+- **AI-Powered Support**: Automated troubleshooting with access to system logs and configurations
+- **Computational Resources**: Cloud-based security analysis and processing
+
+**These services may ONLY be used for authorized, ethical, and legal cybersecurity purposes.**
+
+Before using any API endpoints, ensure you understand and comply with all applicable terms and restrictions outlined in the [Terms of Service](TERMS_OF_SERVICE.md).
+
 ## API Services
 
 | Service | Host | Endpoint | Method | Models | Status | Description |
