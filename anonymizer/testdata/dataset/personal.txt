@@ -1,0 +1,159 @@
+===Email Address===
+user@example.com
+admin@company.org
+test.email+tag@domain.co.uk
+
+===Email Addresses===
+support@example.com
+info@company.org
+contact@domain.net
+
+===US Phone Numbers===
+(555) 123-4567
+555-123-4567
++1-555-123-4567
+
+===Large number of US Phone Numbers===
+555-123-4567
+(555) 123-4567
+
+===Argentina National Identity (DNI) Number===
+12.345.678
+98.765.432
+
+===Canada Passport ID===
+AB123456
+XY987654
+
+===Germany Passport ID===
+C123ABC567
+F456DEF890
+G789GHI123
+K234QR6678
+C567ST9901
+F890UV2234
+
+===France Passport ID===
+121112345
+
+===UK Passport Number===
+1234567890GBR1234567U123456789
+9876543210GBP7654321M987654321
+
+===California Drivers License===
+A1234567
+B9876543
+
+===UK Drivers License Numbers===
+MORGA657054SM9IJ
+SMITH123456AB1CD
+
+===GPS Data===
++40.7128,-74.0060
+-33.8688,151.2093
+
+===Tax Number===
+1234567890
+9876543210
+
+===Arista network configuration===
+via 192.168.1.1, 10:30:45
+
+===CVE Number===
+CVE-2021-1234
+CVE-2023-12345
+
+===France National ID card (CNI)===
+123456789012
+
+===Germany Driver's License ID===
+55667788990
+99001122334
+
+===Germany ID card number===
+L12345678
+L44556677
+
+===HIPAA PHI National Drug Code===
+12345-123-12
+1234-1234-1
+
+===Individual Taxpayer Identification Numbers (ITIN)===
+912-70-1234
+912 78 1234
+
+===Ireland Personal Public Service (PPS) Number===
+1234567A
+1234567AB
+
+===Poland National ID (PESEL)===
+12345678901
+
+===Spain Social Security Number (SSN)===
+12/12345678/12
+12/12345678/12
+
+===Spain Social Security Number (SSN) - 2===
+123 45 6789
+123-45-6789
+
+===Sweden Passport ID===
+12345678
+
+===United Kingdom Driver's license ID===
+MORGA123456AB12345
+
+===United Kingdom National Health Service (NHS) number===
+123 456 7890
+
+===United Kingdom Passport ID===
+123456789
+
+===Passport Number (simplified) - 3===
+A1234567
+
+===isbn10===
+1234567890
+123-4-56789-0
+
+===isbn13===
+1234567890123
+1-2-3-4-5-6-7-8-9-0-1-2-3
+
+===phones===
++1 (555) 123-4567
+555-123-4567
+
+===ssn - 3===
+123-45-6789
+
+===ssn_number===
+123-45-6789
+
+===ssn_number - 3===
+123-45-6789
+
+===Social Security Number (SSN) - 3===
+123-45-6789
+
+===Social Security Number (SSN) - 4===
+123-45-6789
+
+===Croatia Vat ID card number===
+HR12345678901
+
+===Czech Republic Vat ID card number===
+CZ12345678
+CZ1234567890
+
+===Driver's License Number (simplified)===
+AB-123456
+XY-987654
+
+===Google Application Identifier===
+123456789012-abcdef1234567890.apps.googleusercontent.com
+987654321098-xyz123456789abcd.apps.googleusercontent.com
+
+===MasterCard===
+5555555555554444
+5105105105105100

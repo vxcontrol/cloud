@@ -1,0 +1,9 @@
+{
+    "go.testFlags": [
+      "-count=1",
+      "-benchtime=3s",
+    ],
+    "go.testTimeout": "300s",
+    "go.testExplorer.enable": true,
+    "search.useIgnoreFiles": true,
+}

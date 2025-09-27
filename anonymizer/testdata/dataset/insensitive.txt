@@ -1,0 +1,790 @@
+===Command Line Arguments===
+--password-file /path/to/file
+--token-length 32
+--api-key-format base64
+--secret-rotation enabled
+--auth-method oauth2
+--key-size 2048
+mysql --password-prompt
+--bearer-token-validation
+--jwt-algorithm HS256
+--csrf-protection enabled
+--oauth-redirect-uri /callback
+--ssl-cert-path /etc/ssl/certs
+--private-key-file /etc/ssl/private
+--public-key-file /etc/ssl/public
+
+===Environment Variables===
+PASSWORD_MIN_LENGTH=8
+TOKEN_EXPIRY_HOURS=24
+API_KEY_ROTATION=daily
+SECRET_MANAGER_MODE=enabled
+AUTH_PROVIDER: google
+KEY_DERIVATION_TYPE=pbkdf2
+JWT_ISSUER=localhost
+CSRF_COOKIE_NAME=_csrf
+OAUTH_SCOPES=read,write
+SSL_VERIFY=true
+PRIVATE_KEY_BITS=4096
+PUBLIC_KEY_FORMAT=pem
+DATABASE_HOST=localhost
+REDIS_PORT=6379
+
+===Configuration Keys===
+password_field: "required"
+token_type: "bearer"
+api_key_version: "v1"
+secret_encryption: "enabled"
+auth: "enabled"
+key: "rsa-2048"
+bearer: "jwt"
+jwt: "hs256"
+csrf: "sameSite"
+oauth: "pkce"
+ssl: "tls1.3"
+private: "encrypted"
+public: "x509"
+database: "postgres"
+redis: "cluster"
+
+===File Paths===
+/etc/password
+/var/lib/tokens
+/opt/api-keys
+/home/user/.secrets
+/tmp/auth_service.log
+/etc/ssl/private
+/etc/ssl/public
+/var/log/bearer_service.log
+/etc/jwt_settings.conf
+/etc/csrf_config.conf
+/etc/oauth_providers.conf
+/var/lib/ssl
+/etc/private
+/etc/public
+/var/database
+/var/redis
+
+===URL Parameters===
+?password_reset=true
+?token_type=bearer
+?api_key_version=v2
+?secret_encrypted=yes
+?auth_required=false
+?key_algorithm=rsa
+?bearer_format=jwt
+?jwt_exp=3600
+?csrf_enabled=true
+?oauth_flow=code
+?ssl_required=true
+?private_data=false
+?public_api=true
+?database_ssl=required
+?redis_auth_required=none
+
+===Log Messages===
+password authentication successful
+token validation passed
+api key rotation scheduled
+secret decryption completed
+auth provider configured
+key generation finished
+bearer token issued
+jwt signature verified
+csrf token generated
+oauth flow initiated
+ssl handshake completed
+private key loaded
+public key exported
+database connection established
+redis cluster ready
+
+===Documentation Examples===
+The password field is required
+Use token for authentication
+API key must be valid
+Secret should be encrypted
+Auth is enabled by default
+Key size is 2048 bits
+Bearer tokens expire in 1 hour
+JWT uses HS256 algorithm
+CSRF protection is mandatory
+OAuth uses PKCE flow
+SSL certificates auto-renew
+Private keys are encrypted
+Public keys are in PEM format
+Database uses connection pooling
+Redis supports clustering
+
+===Code Comments===
+// password validation logic
+// token refresh mechanism
+// api key management
+// secret encryption service
+// auth middleware
+// key derivation function
+// bearer token parser
+// jwt token validator
+// csrf protection filter
+// oauth callback handler
+// ssl context setup
+// private key generator
+// public key exporter
+// database connection pool
+// redis client factory
+
+===Variable Names===
+passwordField
+tokenHeader
+apiKeyManager
+secretService
+authProvider
+keyGenerator
+bearerParser
+jwtValidator
+csrfFilter
+oauthHandler
+sslContext
+privateKeyGen
+publicKeyExp
+databasePool
+redisClient
+
+===Function Names===
+validatePassword()
+parseToken()
+rotateApiKey()
+encryptSecret()
+authenticateUser()
+generateKey()
+parseBearerToken()
+validateJWT()
+generateCSRF()
+handleOAuth()
+setupSSL()
+loadPrivateKey()
+exportPublicKey()
+connectDatabase()
+initRedis()
+
+===Class Names===
+PasswordValidator
+TokenManager
+ApiKeyRotator
+SecretEncryption
+AuthProvider
+KeyGenerator
+BearerTokenParser
+JWTValidator
+CSRFProtection
+OAuthHandler
+SSLContext
+PrivateKeyLoader
+PublicKeyExporter
+DatabaseConnection
+RedisClient
+
+===Error Messages===
+password is too short
+token has expired
+api key is invalid
+secret decryption failed
+auth provider unreachable
+key generation error
+bearer token malformed
+jwt signature invalid
+csrf token missing
+oauth state mismatch
+ssl handshake failed
+private key corrupted
+public key invalid
+database connection timeout
+redis cluster unavailable
+
+===Test Data===
+test-password-123
+mock-token-value
+fake-api-key-xyz
+dummy-secret-abc
+test-auth-provider
+sample-key-data
+example-bearer-token
+test-jwt-payload
+mock-csrf-value
+fake-oauth-state
+test-ssl-cert
+sample-private-key
+example-public-key
+test-database-name
+mock-redis-key
+
+===False Positive Examples===
+SECRET_MANAGER_ENABLED=true
+KEY_DERIVATION_ROUNDS=10000
+TRAVIS_CI_BUILD_NUMBER=01234567890123456789012345678901
+CIRCLE_CI_BUILD_ID=abcdef1234567890abcdef1234567890abcdef12
+JENKINS_BUILD_NUMBER=fedcba0987654321fedcba0987654321
+API_KEY_ROTATION_DAYS=30
+TOKEN_EXPIRY_SECONDS=3600
+HMAC_ALGORITHM=sha256
+AES_KEY_SIZE=256
+RSA_KEY_BITS=2048
+ELASTIC_SEARCH_TIMEOUT=30
+DATADOG_AGENT_VERSION=7.40.1
+NEWRELIC_APP_NAME=myapp
+PUSHER_CLUSTER=us2
+PLAID_ENVIRONMENT=sandbox
+
+===Build IDs and Numbers===
+BUILD_ID=abcdef1234567890abcdef1234567890abcdef12
+BUILD_NUMBER=fedcba0987654321fedcba0987654321
+DEPLOYMENT_ID=deploy-xyz789
+RELEASE_TAG=v1.2.3-abcdef1234567890
+VERSION_HASH=v-abc123def456
+COMMIT_SHORT=abcdef12
+BRANCH_NAME=feature/auth-improvements
+PIPELINE_ID=pipe-xyz789
+
+===Configuration Values===
+TIMEOUT_SECONDS=30
+RETRY_COUNT=3
+MAX_CONNECTIONS=100
+BUFFER_SIZE=8192
+CACHE_TTL=3600
+SESSION_DURATION=86400
+RATE_LIMIT=1000
+BATCH_SIZE=500
+CHUNK_SIZE=1024
+POOL_SIZE=10
+
+===File Extensions and Formats===
+file_key.txt
+certificate_pem.txt
+private_key.txt
+public_key.txt
+config_json.txt
+secrets_yaml.txt
+credentials_conf.txt
+auth_properties.txt
+token_data.txt
+api_xml.txt
+
+===Network and Infrastructure===
+SERVER_PORT=8080
+DATABASE_PORT=5432
+REDIS_PORT=6379
+ELASTICSEARCH_PORT=9200
+KAFKA_PORT=9092
+ZOOKEEPER_PORT=2181
+CONSUL_PORT=8500
+VAULT_PORT=8200
+PROMETHEUS_PORT=9090
+GRAFANA_PORT=3000
+
+===Algorithm and Encryption Names===
+ENCRYPTION_ALGORITHM=AES-256-GCM
+HASH_FUNCTION=SHA-256
+SIGNING_ALGORITHM=RS256
+KEY_DERIVATION_FUNCTION=PBKDF2
+CIPHER_MODE=CBC
+PADDING_SCHEME=PKCS1
+RANDOM_GENERATOR=SecureRandom
+DIGEST_ALGORITHM=SHA-512
+MAC_ALGORITHM=HMAC-SHA256
+COMPRESSION_TYPE=GZIP
+
+===Service Names and Identifiers===
+SERVICE_NAME=auth-service
+COMPONENT_ID=user-management
+MODULE_NAME=encryption-utils
+LIBRARY_VERSION=v2.1.0
+FRAMEWORK_NAME=spring-boot
+PROVIDER_TYPE=oauth2
+CLIENT_TYPE=web-application
+GRANT_TYPE=authorization_code
+RESPONSE_TYPE=code
+SCOPE_TYPE=read-write
+
+===UUID-like but Invalid===
+INSTANCE_ID=inst-12345
+SESSION_TYPE=sess
+REQUEST_ID=req-aaa
+TRACE_ID=trace-000
+SPAN_ID=span-555
+
+===Email-like but Invalid===
+service-account
+admin-user
+system-process
+daemon-service
+process-worker
+worker-thread
+manager-component
+scheduler-service
+monitor-agent
+logger-service
+
+===URL-like but Safe===
+/api/v1/health
+/metrics/prometheus
+/admin/dashboard
+/auth/callback
+/oauth/authorize
+/jwt/validate
+/csrf/generate
+/hmac/verify
+/aes/encrypt
+/rsa/decrypt
+
+===JSON-like Configuration===
+{"timeout": 30}
+{"retries": 3}
+{"enabled": true}
+{"algorithm": "sha256"}
+{"keySize": 2048}
+{"maxAge": 3600}
+{"secure": true}
+{"httpOnly": false}
+{"sameSite": "strict"}
+{"compression": "gzip"}
+
+===Command Line Flags===
+--timeout 30
+--retries 3
+--algorithm sha256
+--key-size 2048
+--max-age 3600
+--secure true
+--http-only false
+--same-site strict
+--compression gzip
+--verbose true
+
+===Database Table Names===
+users_table
+passwords_hash
+tokens_cache
+sessions_store
+api_keys_registry
+secrets_vault
+auth_providers
+oauth_clients
+jwt_blacklist
+csrf_tokens
+
+===Log Levels and Messages===
+INFO: password validation started
+DEBUG: token parsing completed
+WARN: api key rotation needed
+ERROR: secret decryption failed
+TRACE: auth provider contacted
+FATAL: key generation error
+AUDIT: bearer token issued
+SECURITY: jwt signature verified
+ACCESS: csrf token validated
+SYSTEM: oauth flow completed
+
+===Docker and Kubernetes===
+FROM alpine:3.18
+ENV NODE_ENV=production
+LABEL version=1.2.3
+EXPOSE 8080
+WORKDIR /app
+USER 1000:1000
+VOLUME /data
+ENTRYPOINT ["./app"]
+CMD ["--port", "8080"]
+HEALTHCHECK --interval=30s CMD curl -f /health
+
+===Kubernetes YAML===
+apiVersion: v1
+kind: Secret
+metadata:
+  name: my-secret
+  namespace: default
+spec:
+  type: Opaque
+data:
+  username: YWRtaW4=
+  password_hash: MWYyZDFlMmU2N2Rm
+
+===SQL Queries===
+SELECT * FROM users WHERE id = 12345;
+INSERT INTO tokens (value) VALUES ('abcdef1234567890abcdef1234567890abcdef12');
+UPDATE secrets SET encrypted = 'fedcba0987654321fedcba0987654321' WHERE id = 1;
+DELETE FROM sessions WHERE session_id = 'sess_abc123def456789012345678901234567890';
+CREATE TABLE api_keys (id INT, key_hash VARCHAR(64));
+
+===Git Commands===
+git commit -m "Add password validation"
+git push origin feature/token-refresh
+git checkout -b hotfix/api-key-rotation
+git tag v1.2.3-auth-improvements
+git log --grep="secret"
+git diff HEAD~1 -- config/secrets.yaml
+git blame auth/password.go
+git show abcdef1234567890abcdef1234567890abcdef12
+
+===Terraform Configuration===
+variable "password_length" {
+  type = number
+  default = 16
+}
+resource "aws_secretsmanager_secret" "example" {
+  name = "my-secret"
+}
+data "aws_secretsmanager_secret_version" "example" {
+  secret_id = aws_secretsmanager_secret.example.id
+}
+output "secret_arn" {
+  value = aws_secretsmanager_secret.example.arn
+}
+
+===Ansible Playbook===
+- name: Install password manager
+  apt:
+    name: pass
+    state: present
+- name: Configure API key rotation
+  cron:
+    name: "rotate keys"
+    minute: "0"
+    hour: "2"
+    job: "/usr/bin/rotate-keys.sh"
+- name: Set JWT secret
+  lineinfile:
+    path: /etc/app.conf
+    line: "jwt_secret_file=/etc/ssl/jwt.key"
+
+===Nginx Configuration===
+server {
+    listen 443 ssl;
+    server_name api-server;
+    ssl_certificate /etc/ssl/certs/api.crt;
+    ssl_certificate_key /etc/ssl/private/api.key;
+    ssl_session_timeout 5m;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-RSA-AES256-GCM-SHA384;
+    location /api {
+        proxy_pass backend-service;
+        proxy_set_header Auth-Header $http_authorization;
+    }
+}
+
+===Apache Configuration===
+<VirtualHost *:443>
+    ServerName secure-server
+    SSLEngine on
+    SSLCertificateFile /etc/ssl/certs/server.crt
+    SSLCertificateKeyFile /etc/ssl/private/server.key
+    SSLProtocol all -SSLv2 -SSLv3
+    SSLCipherSuite HIGH:!aNULL:!MD5
+    Header always set Strict-Transport-Security "max-age=3600"
+</VirtualHost>
+
+===Programming Language Examples===
+const API_KEY_LENGTH = 32;
+const TOKEN_EXPIRY = 3600;
+const SECRET_MIN_LENGTH = 16;
+const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d@$!%*?&]{8,}$/;
+const JWT_ALGORITHM = 'HS256';
+const HMAC_DIGEST = 'sha256';
+const AES_MODE = 'CBC';
+const RSA_PADDING = 'OAEP';
+function validatePassword(input) { return true; }
+class TokenManager { }
+interface SecretProvider { }
+
+===Monitoring and Metrics===
+cpu_usage_percent=75.5
+memory_usage_bytes=1024
+disk_space_available=2048
+network_bytes_sent=4096
+network_bytes_received=8192
+request_count_total=100000
+error_rate_percent=0.01
+response_time_ms=250
+uptime_seconds=86400
+active_connections=100
+
+===Cloud Provider Resource Names===
+arn:aws:s3:bucket-name
+arn:aws:iam::account:role/MyRole
+arn:aws:lambda:us-east-1:123456:function/MyFunction
+projects/my-project/secrets/my-secret/versions/1
+/subscriptions/sub-123/resourceGroups/myRG
+organizations/org-123/folders/folder-456/projects/proj-789
+
+===Certificate and Key File Names===
+server.crt
+client.key
+ca-bundle.pem
+intermediate.crt
+root-ca.key
+wildcard.crt
+self-signed.key
+dhparam.pem
+truststore.jks
+keystore.p12
+
+===Backup and Archive Names===
+backup-2023-12-01.tar.gz
+secrets-backup-abcdef1234567890.zip
+database-dump-fedcba0987654321.sql
+config-snapshot-2023-12-01.json
+keys-archive-987654321098765432109876543210.tar
+logs-2023-12-01-abcdef1234567890abcdef1234567890.gz
+
+===Process and Service Names===
+auth-service-v1.2.3
+token-validator-worker
+password-hasher-daemon
+secret-rotator-cron
+api-gateway-proxy
+oauth-provider-service
+jwt-issuer-component
+csrf-protection-middleware
+session-manager-redis
+encryption-service-aes
+
+===Fake Sensitive-Looking Data===
+FAKE_PASSWORD_FIELD=not-a-real-password
+MOCK_TOKEN_TYPE=test-token-value
+DUMMY_SECRET_NAME=example-secret-data
+TEST_API_KEY_FORMAT=fake-api-key-123
+SAMPLE_BEARER_TYPE=bearer-token-example
+EXAMPLE_JWT_FORMAT=jwt.payload.signature
+DEMO_CSRF_METHOD=csrf-token-demo
+PLACEHOLDER_OAUTH_TYPE=oauth-token-placeholder
+TEMPLATE_HMAC_ALGO=hmac-signature-template
+PROTOTYPE_AES_MODE=aes-key-prototype
+
+===XML and HTML Examples===
+<config>
+  <database>
+    <host>localhost</host>
+    <port>5432</port>
+    <name>mydb</name>
+  </database>
+  <auth>
+    <provider>oauth2</provider>
+    <timeout>30</timeout>
+  </auth>
+</config>
+<html>
+  <head><title>Auth Page</title></head>
+  <body>
+    <form action="/login" method="post">
+      <input type="password" name="pwd" placeholder="Enter password">
+      <input type="hidden" name="csrf" value="csrf-protection-token">
+    </form>
+  </body>
+</html>
+
+===YAML Configuration Examples===
+database:
+  host: localhost
+  port: 5432
+  name: myapp
+  ssl: require
+auth:
+  provider: oauth2
+  timeout: 30s
+  secret_file: /etc/auth/secret
+logging:
+  level: info
+  format: json
+  output: /var/log/app.log
+
+===INI Configuration Examples===
+[database]
+host=localhost
+port=5432
+name=myapp
+ssl=require
+
+[auth]
+provider=oauth2
+timeout=30
+secret_file=/etc/auth/secret
+
+[logging]
+level=info
+format=json
+output=/var/log/app.log
+
+===TOML Configuration Examples===
+[database]
+host = "localhost"
+port = 5432
+name = "myapp"
+ssl = "require"
+
+[auth]
+provider = "oauth2"
+timeout = "30s"
+secret_file = "/etc/auth/secret"
+
+[logging]
+level = "info"
+format = "json"
+output = "/var/log/app.log"
+
+===Properties Files===
+database.host=localhost
+database.port=5432
+database.name=myapp
+database.ssl=require
+auth.provider=oauth2
+auth.timeout=30
+auth.secret.file=/etc/auth/secret
+logging.level=info
+logging.format=json
+logging.output=/var/log/app.log
+
+===Makefile Examples===
+DOCKER_IMAGE=myapp:latest
+DOCKER_TAG=v1.2.3
+BUILD_ARGS=--no-cache
+TEST_COMMAND=go test ./...
+DEPLOY_ENV=production
+SECRET_FILE=/etc/secrets/app.key
+CONFIG_FILE=/etc/config/app.yaml
+LOG_LEVEL=info
+PORT=8080
+TIMEOUT=30s
+
+===Systemd Service Files===
+[Unit]
+Description=My Application
+After=network.target
+
+[Service]
+Type=simple
+User=myapp
+Group=myapp
+WorkingDirectory=/opt/myapp
+ExecStart=/opt/myapp/bin/app --config /etc/myapp/config.yaml
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=LOG_LEVEL=info
+Environment=PORT=8080
+
+[Install]
+WantedBy=multi-user.target
+
+===Crontab Examples===
+0 2 * * * /usr/bin/backup-database.sh
+30 1 * * 0 /usr/bin/rotate-logs.sh
+0 0 1 * * /usr/bin/cleanup-temp.sh
+*/5 * * * * /usr/bin/health-check.sh
+0 6 * * 1 /usr/bin/update-certificates.sh
+
+===Package Manager Files===
+name: myapp
+version: 1.2.3
+description: My application
+author: developer
+license: MIT
+dependencies:
+  express: ^4.18.0
+  jsonwebtoken: ^9.0.0
+  bcrypt: ^5.1.0
+  dotenv: ^16.0.0
+devDependencies:
+  jest: ^29.0.0
+  eslint: ^8.0.0
+
+===License Headers===
+Copyright (c) 2023 My Company
+Licensed under the MIT License
+Permission is hereby granted, free of charge
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY
+SPDX-License-Identifier: MIT
+Apache License Version 2.0
+GNU General Public License v3.0
+
+===API Documentation Examples===
+GET /api/v1/users/{id}
+POST /api/v1/auth/login
+PUT /api/v1/users/{id}/password
+DELETE /api/v1/sessions/{session_id}
+PATCH /api/v1/tokens/{token_id}
+OPTIONS /api/v1/oauth/authorize
+HEAD /api/v1/health
+TRACE /api/v1/debug
+
+===HTTP Status Codes===
+200 OK
+201 Created
+400 Bad Request
+401 Unauthorized
+403 Forbidden
+404 Not Found
+429 Too Many Requests
+500 Internal Server Error
+502 Bad Gateway
+503 Service Unavailable
+
+===Regex Patterns in Code===
+/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
+/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d@$!%*?&]{8,}$/
+/^\d{3}-\d{2}-\d{4}$/
+/^[A-Z]{2}\d{2}[A-Z0-9]{4}\d{7}([A-Z0-9]?){0,16}$/
+/^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/
+/^0x[a-fA-F0-9]{40}$/
+/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+===Test Framework Examples===
+describe('Password validation', () => {
+  it('should validate strong passwords', () => {
+    expect(validatePassword('StrongPass123!')).toBe(true);
+  });
+  it('should reject weak passwords', () => {
+    expect(validatePassword('weak')).toBe(false);
+  });
+});
+
+@Test
+public void testTokenValidation() {
+  String token = "test-token-12345";
+  assertTrue(tokenValidator.isValid(token));
+}
+
+func TestAPIKeyRotation(t *testing.T) {
+  key := "test-api-key-67890"
+  assert.True(t, isValidAPIKey(key))
+}
+
+===OpenAPI Specification===
+openapi: 3.0.0
+info:
+  title: My API
+  version: 1.2.3
+paths:
+  /auth/login:
+    post:
+      summary: User login
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                password_field:
+                  type: string
+                  format: password
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    format: jwt

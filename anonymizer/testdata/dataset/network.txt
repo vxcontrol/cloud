@@ -1,0 +1,91 @@
+===IPv4 Address===
+192.168.1.1
+10.0.0.50
+172.16.0.100
+203.0.113.1
+
+===IPv6 Address===
+2001:0db8:85a3:0000:0000:8a2e:0370:7334
+2001:db8:85a3::8a2e:370:7334
+::1
+::ffff:192.0.2.1
+
+===Private IP Range===
+10.0.0.1
+172.16.0.1
+192.168.1.100
+
+===Domain Name Enhanced===
+google.com
+api.example.com
+subdomain.example.org
+example.co.uk
+xn--nxasmq6b.xn--j6w193g
+
+===HTTP/HTTPS URL===
+https://api.example.com/v1/users
+http://localhost:8080/api
+https://github.com/user/repo
+https://example.com/path?query=value
+
+===WS URL===
+wss://api.example.com/websocket
+ws://localhost:3000/socket
+
+===FTP URL===
+ftp://files.example.com/uploads
+sftp://secure.example.com/data
+ftps://encrypted.example.com/files
+
+===SSH URL===
+ssh://user@server.example.com:22
+
+===VNC URL===
+vnc://192.168.1.100:5900
+
+===RDP URL===
+rdp://server.company.com:3389
+
+===Telnet URL===
+telnet://router.local:23
+
+===MAIL URL===
+smtp://mail.example.com:587
+pop3://mail.example.com:110
+imap://mail.example.com:993
+
+===SMB URL===
+smb://fileserver.local/share
+
+===NFS URL===
+nfs://storage.local/exports
+
+===MAC Address Standard===
+00:1B:44:11:3A:B7
+AA:BB:CC:DD:EE:FF
+
+===MAC Address Cisco Format===
+001b.4411.3ab7
+aabb.ccdd.eeff
+
+===Generic Webhook URL===
+https://api.example.com/webhook/abc123
+https://hooks.slack.com/webhook/xyz456
+
+===Generic Callback URL===
+https://oauth.example.com/callback
+https://app.example.com/callback/auth
+
+===Microsoft Teams Webhook===
+https://outlook.office.com/webhook/12345678-1234-1234-1234-123456789012@abcdef12-3456-7890-abcd-ef1234567890/IncomingWebhook/abcdef1234567890abcdef1234567890ab/12345678-1234-1234-1234-123456789012
+
+===Discord Webhook===
+https://discord.com/api/webhooks/123456789012345678/abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12
+https://discordapp.com/api/webhooks/987654321098765432/fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321
+
+===Zapier Webhook===
+https://hooks.zapier.com/hooks/catch/123456/abcdef/
+https://hooks.zapier.com/hooks/catch/789012/xyz789/
+
+===Zoho Webhook===
+https://creator.zoho.com/api/v2/my-app/report/All_Records?authtoken=abcdef1234567890abcdef12

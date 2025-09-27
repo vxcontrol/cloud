@@ -1,0 +1,128 @@
+===Amex Card===
+371449635398431
+378282246310005
+
+===IBAN===
+GB82WEST12345698765432
+DE89370400440532013000
+
+===SWIFT Codes===
+CHASUS33XXX
+DEUTDE33XXX
+
+===BCGlobal===
+6541123456789012
+
+===Carte Blanche Card===
+38912345678901
+
+===Diners Club Card===
+30012345678901
+
+===Discover Card===
+6011123456789012
+
+===Insta Payment Card===
+6371234567890123
+
+===JCB Card===
+213112345678901
+
+===Korean Local Card===
+9123456789012345
+
+===Laser Card===
+630412345678901234
+
+===Maestro Card===
+501812345678901234
+
+===Solo Card===
+633412345678901234
+
+===Switch Card===
+490312345678901234567
+
+===Credit card - 3===
+4123 4567 8901 2345
+
+===credit_cards===
+4111-1111-1111-1111
+5555 5555 5555 4444
+
+===visa_cards===
+4123-4567-8901-2345
+
+===visa_credit_card===
+4111111111111111
+
+===master_cards===
+5555-5555-5555-4444
+
+===btc_addresses===
+1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2
+
+===Bank of America Routing Numbers - California===
+121000358
+026009593
+
+===Citibank Routing Numbers - California===
+322271724
+
+===facebook_secret===
+facebook_secret=abcdef1234567890abcdef1234567890;
+
+===github_key===
+github_token=1234567890abcdef1234567890abcdef12345678;
+
+===google_two_factor_backup===
+BACKUP VERIFICATION CODES
+Save these codes: user@example.com
+
+===heroku_key===
+heroku_api_key=12345678-1234-1234-1234-123456789012;
+
+===slack_api_key===
+slack_api_key=xoxb-4567890123456-4567890123456-DEFhijKLmnopQRSvwxYZABcd;
+
+===slack_api_token===
+xoxb-123456789012-123456789012-abcdef1234567890abcdef12-abc123
+
+===DataDog API Key===
+datadog_api_key=abcdef1234567890abcdef1234567890
+DATADOG-KEY=fedcba0987654321fedcba0987654321
+
+===New Relic License Key===
+newrelic_license_key=abcdef1234567890abcdef1234567890abcdef12
+NEW-RELIC-KEY=fedcba0987654321fedcba0987654321fedcba09
+
+===Sentry DSN===
+https://abcdef1234567890abcdef1234567890ab:fedcba0987654321fedcba0987654321@sentry.io/123456
+
+===PubNub Keys===
+pub-c-abcdef12-3456-7890-abcd-ef1234567890
+sub-c-fedcba09-8765-4321-fedc-ba0987654321
+
+===Pusher Key===
+pusher_key=abcdef1234567890abcd
+PUSHER-TOKEN=fedcba0987654321fedc
+
+===Plaid Secret===
+plaid_secret=abcdef1234567890abcdef12345678
+PLAID-KEY=fedcba0987654321fedcba09876543
+
+===Razorpay Key===
+rzp_test_abcdef1234567890
+rzp_live_fedcba0987654321098765
+
+===High Entropy Base64===
+secret=abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890==
+token=fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321==
+
+===High Entropy Hex===
+key=abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab
+secret=fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321
+
+===Mixed Case High Entropy===
+auth=abcdef1234567890ABCDEF1234567890abcdef1234567890ABCDEF1234567890
+credential=FEDCBA0987654321fedcba0987654321FEDCBA0987654321fedcba0987654321

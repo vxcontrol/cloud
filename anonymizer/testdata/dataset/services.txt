@@ -1,0 +1,61 @@
+===HTTP Password===
+--http-passwd=http_auth_password
+
+===Htpasswd Password===
+htpasswd -b /etc/passwd username secretpassword
+
+===Jupyter Notebook Token===
+--NotebookApp.token="abcdef1234567890abcdef1234567890ab"
+
+===MariaDB Password===
+--set mariadbPassword=db_secret_pass
+
+===Recovery Password===
+-recoveryPassword=recovery_secret_123
+
+===Sensor Password===
+--sensor-password sensor_pass_123
+
+===Twine Password===
+TWINE_PASSWORD=pypi_upload_password
+
+===Key File Echo===
+--key-file <(echo -n "secret_key_content")
+
+===Repository Password===
+-Drepository.password=maven_repo_pass
+
+===SSH Password Parameter===
+--ssh_password ssh_secret_pass
+
+===Auth Credential Pattern===
+-auth user:password123
+
+===User Credential Pattern===
+-u admin:secret_pass
+
+===Embedding Hash===
+-Embedding abcdef1234567890abcdef1234567890ab
+
+===Echo Password Pattern===
+echo "secret_password" | su -
+
+===GitHub Token===
+ghp_1234567890abcdef1234567890abcdef123456
+gho_abcdef1234567890abcdef1234567890abcd
+ghu_fedcba0987654321fedcba0987654321fedcba0987654321abcdef
+ghs_1a2b3c4d5e6f7890abcdef1234567890abcdef
+ghr_abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12
+
+===Slack Token===
+xoxb-123456789012-123456789012-abcdefghijklmnopqrstuvwx
+xoxp-1234567890123-1234567890123-1234567890123-abcdef1234567890abcdef1234567890ab
+xoxa-2-123456789012-123456789012-abcdefghijklmnopqrstuvwxyz123456
+
+===Discord Bot Token===
+NzkyNzE1NDk0NzI1MjI4NTU0.X-hvzA.Ovy4MCQywSkoMRRclStW4xAYK7I
+ODc4MzgxNzQyMjEyMzQ1NjY3.YR5tQw.K7BhHNt1dfMcEx1vGOItKQYyNqE
+
+===Telegram Bot Token===
+1234567890:AAEhBOwweL4XGCvbdQMRcEtjv0Bk_8jLQg0
+987654321:AAF5OZVpEuFjmEO_f3g1BQNkNk-fqFZEQg0

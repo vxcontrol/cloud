@@ -1,0 +1,125 @@
+name: "\U0001F41B Bug report"
+description: "Report a bug in VXControl Cloud SDK"
+title: "[Bug]: "
+labels: ["bug"]
+assignees:
+  - asdek
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report! Please provide as much information as possible to help us diagnose and fix the SDK issue.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected Component
+      description: Which component of VXControl Cloud SDK is affected by this bug?
+      multiple: true
+      options:
+        - SDK Core (Call patterns, Transport, Configuration)
+        - Security Framework (PoW, Encryption, Signatures)
+        - Data Models (Request/Response types, Validation)
+        - Anonymizer Engine (PII/Secrets masking, Pattern recognition)
+        - License System (Validation, Introspection, Tier management)
+        - Examples (Integration patterns, Usage demonstrations)
+        - Documentation (README, API reference, Package docs)
+        - Other (please specify in the description)
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Describe the bug
+      description: Please provide a clear and concise description of the bug, including expected and actual behavior.
+      placeholder: |
+        What happened:
+        - Actual behavior: When using SDK function [function_name], the API call [behavior]
+
+        What should happen:
+        - Expected behavior: The SDK should [expected outcome]
+
+        Additional context:
+        - Target service: [Update/Package/Support/AI Investigation]
+        - Error messages: [any error messages from SDK or cloud services]
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Steps to Reproduce
+      description: Please provide detailed steps to reproduce the bug.
+      placeholder: |
+        1. Initialize SDK with configuration: [provide CallConfig details]
+        2. Call SDK function: [specific function call with parameters]
+        3. Observe behavior: [what happens vs what should happen]
+        4. Error occurs when: [specific conditions or inputs]
+        5. Minimal code example: [provide minimal reproducible example]
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: System Configuration
+      description: Please provide details about your setup
+      placeholder: |
+        SDK Version: [e.g., latest from GitHub releases]
+        Integration Type:
+        - [ ] Update Service Integration
+        - [ ] Package Management Integration
+        - [ ] Support Service Integration
+        - [ ] AI Investigation Integration
+
+        Environment:
+        - Go Version: [output of `go version`]
+        - Host OS: [e.g., Ubuntu 22.04, macOS 14.0, Windows 11]
+        - Target Architecture: [amd64/arm64]
+
+        License Configuration:
+        - [ ] No License (Free tier)
+        - [ ] Professional License
+        - [ ] Enterprise License
+
+        SDK Configuration:
+        - Host: [e.g., update.pentagi.com, support.pentagi.com]
+        - Methods: [CallMethodPOST/GET/etc]
+        - Call Types: [CallReqBytesRespBytes/etc]
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Logs and Artifacts
+      description: |
+        Please provide relevant logs and error information:
+        - SDK error messages and stack traces
+        - Go application logs with SDK debug information
+        - Network errors or connection issues
+        - PoW solving timeouts or failures
+      placeholder: |
+        ```
+        Paste error messages and relevant logs here
+        ```
+
+        For large logs or full stack traces, please use GitHub Gist and provide the link.
+    validations:
+      required: false
+  - type: textarea
+    attributes:
+      label: Screenshots or Recordings
+      description: |
+        If applicable, add screenshots or recordings to help explain your problem.
+        - For integration issues: Code screenshots showing the problem
+        - For error dialogs: Screenshots of error messages
+        - For network issues: Terminal output or debug logs
+      placeholder: Drag and drop images here, or paste links to external storage.
+    validations:
+      required: false
+  - type: checkboxes
+    id: verification
+    attributes:
+      label: Verification
+      description: Please verify the following before submitting
+      options:
+        - label: I have checked that this issue hasn't been already reported
+        - label: I have provided SDK configuration details (with sensitive data removed)
+        - label: I have included relevant error messages and stack traces
+        - label: I am using a supported Go version (1.24.0+)
+        - label: I have tested with the latest SDK version
+    validations:
+      required: true

@@ -1,0 +1,124 @@
+{
+  "tickets": [
+    {
+      "name": "valid_success",
+      "ticket": "5aG+SXRUmFEg99igmVwtVyomxjNulBoKwtBOKiKmw68/+43USoXL97dZ9sj4UOLivUZ/7yPxFTwBxv59pUzUkABxA3RaAjJAAAoAPA",
+      "request_id": "e0ab0348-1aa9-5457-55e4-79004c7530f7",
+      "signature_nonce": "P/uN1EqFy/e3WfbI+FDi4g",
+      "server_key": "BaG+SXRUmFEg99igmVwtVw",
+      "installation_id": "ca8dc57b-743d-4e5d-9734-372a6ed3f358",
+      "valid": true
+    },
+    {
+      "name": "valid_timeout",
+      "ticket": "okXk0l9FLYdYulcA78gDti3Dr8+8btDZB9HYg8Do1sz9l92tTokrnSsQiT1BlukRQGJfyhhZ3zbEJtQQDD+SvwCRA0tXAixAAAoAPA",
+      "request_id": "3c131185-5715-9b08-8749-3f5462dec462",
+      "signature_nonce": "/ZfdrU6JK50rEIk9QZbpEQ",
+      "server_key": "ix+E0l9FLYdYulcA78gDtg",
+      "installation_id": "11d0be4a-eb7b-4bd1-8098-e7d7a23612ae",
+      "valid": true
+    },
+    {
+      "name": "invalid_corrupted",
+      "ticket": "NZUa7kpTv4U5aHTQAyOVMySL17OMF4llLmzY0rcUMay2FnCqwO0Zm6JLWF6lPEK1XGCFHXarsnPOrMFVg48OMgBmBJF4Ah0gAAoAPA",
+      "request_id": "07c09d5e-b200-4b61-8710-da78d6064e19",
+      "signature_nonce": "",
+      "server_key": "",
+      "installation_id": "57e724dc-d1d9-4a92-ad59-c22b30bedae7",
+      "valid": false
+    }
+  ],
+  "licenses": [
+    {
+      "name": "valid_perpetual",
+      "fp": "zv0FFUSDIJBZb2NTzxIB7g",
+      "key": "FQVL-WCS3-PJ4X-Y2QP",
+      "flags": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "expired_at": "0001-01-01T00:00:00Z",
+      "created_at": "2025-09-16T00:00:00Z",
+      "valid": true
+    },
+    {
+      "name": "valid_expireable",
+      "fp": "JAQgjdgdOW1CI3pm3+wMyA",
+      "key": "NIXH-EMHI-DZS6-2Y6R",
+      "flags": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "expired_at": "2035-01-01T00:00:00Z",
+      "created_at": "2025-09-16T00:00:00Z",
+      "valid": false
+    },
+    {
+      "name": "invalid_expired",
+      "fp": "g4JMek9k8niqC1jTG9I5eg",
+      "key": "NOLR-7WY6-WA67-OHJQ",
+      "flags": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "expired_at": "2025-06-16T00:00:00Z",
+      "created_at": "2025-06-15T00:00:00Z",
+      "valid": true
+    },
+    {
+      "name": "invalid_future_created_at",
+      "fp": "qNPz47dbkG4Sa+WUxXfwxg",
+      "key": "WUB4-9M4H-IW3C-SA94",
+      "flags": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "expired_at": "0001-01-01T00:00:00Z",
+      "created_at": "2035-01-01T00:00:00Z",
+      "valid": false
+    },
+    {
+      "name": "invalid_checksum",
+      "fp": "z5zCRk8ePLXLaPqpLx7GqQ",
+      "key": "IKNG-P26E-9TWK-W7G9",
+      "flags": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "expired_at": "0001-01-01T00:00:00Z",
+      "created_at": "2025-09-16T00:00:00Z",
+      "valid": false
+    }
+  ],
+  "response_data": [
+    {
+      "name": "test_json",
+      "data": "{\"status\":\"success\",\"message\":\"test completed\"}"
+    }
+  ]
+}

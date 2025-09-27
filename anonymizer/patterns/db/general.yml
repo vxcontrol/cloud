@@ -1,0 +1,235 @@
+patterns:
+  # === CREDENTIALS & SECRETS ===
+  - name: Generic API Key
+    regex: '(?i)(?:api[_-]?key|apikey)[=:]\s*(?P<replace>[''"]?[a-zA-Z0-9+/=_-]{16,}[''"]?)'
+  - name: Generic Secret
+    regex: '(?i)(?:secret|password|passwd|pwd)[=:]\s*(?P<replace>[''"]?[^\s''";,]{8,}[''"]?)'
+  - name: Password Pattern
+    regex: '(?i)password[=:]\s*(?P<replace>[^\s;,&<>"'']+)'
+  - name: Generic Token
+    regex: '(?i)(?:token|access[_-]?token)[=:]\s*(?P<replace>[''"]?[a-zA-Z0-9+/=_.-]{10,}[''"]?)'
+  - name: Generic Bearer Token
+    regex: '(?i)bearer\s+(?P<replace>[a-zA-Z0-9+/=_.-]{20,})'
+  - name: Generic Authorization Header
+    regex: '(?i)authorization[:\s]+(?:(bearer|basic|digest)\s+)?(?P<replace>[a-zA-Z0-9+/=_.-]{10,})'
+  - name: Bearer Authorization
+    regex: '(?i)authorization[:\s]+bearer\s+(?P<replace>sk_[a-zA-Z0-9_]+)'
+  - name: JWT Token
+    regex: '\b(?P<replace>eyJ[a-zA-Z0-9+/=_-]+\.eyJ[a-zA-Z0-9+/=_-]+\.[a-zA-Z0-9+/=_-]+)\b'
+  - name: Generic OAuth Token
+    regex: '(?i)oauth[_-]?token[=:]\s*(?P<replace>[''"]?[a-zA-Z0-9+/=_.-]{10,}[''"]?)'
+
+  # === IDENTIFIERS ===
+  - name: Session ID Pattern
+    regex: '(?i)(?:session[_-]?id|sess[_-]?id)[=:]\s*(?P<replace>[''"]?[a-zA-Z0-9-_]{10,}[''"]?)'
+  - name: Generic Client Secret
+    regex: '(?i)client[_-]?secret[=:]\s*(?P<replace>[''"]?[a-zA-Z0-9+/=_.-]{10,}[''"]?)'
+
+  # === NETWORK ADDRESSES (OPTIMIZED) ===
+  - name: IPv4 Address
+    regex: '\b(?P<replace>(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?))\b'
+  - name: IPv6 Address
+    regex: '(?P<replace>(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|::1|::ffff:[0-9.]+|(?:[0-9a-fA-F]{1,4}:){1,7}:)'
+  - name: Private IP Range
+    regex: '\b(?P<replace>(?:10\.(?:[0-9]{1,3}\.){2}[0-9]{1,3}|172\.(?:1[6-9]|2[0-9]|3[01])\.[0-9]{1,3}\.[0-9]{1,3}|192\.168\.[0-9]{1,3}\.[0-9]{1,3}))\b'
+
+  # === DOMAIN & URL (ENHANCED) ===
+  - name: Domain Name Enhanced
+    # regex: '\b(?P<replace>(?:(?:xn--)?[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63})\b'
+    regex: '\b(?P<replace>(?:xn--[a-zA-Z0-9-]+|[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]))\.(?:xn--[a-zA-Z0-9-]+|com|org|net|edu|gov|info|biz|io|ai|co|me|tv|app|dev|tech|us|uk|de|fr|jp|cn|ru|in|br|ca|au|xyz|top|site|club|shop|online)\b'
+  - name: HTTP/HTTPS URL
+    regex: '\b(?P<replace>https?://[^\s<>"{}|\\^`\[\]]+)'
+  - name: WS URL
+    regex: '\b(?P<replace>wss?://[^\s<>"{}|\\^`\[\]]+)'
+  - name: FTP URL
+    regex: '\b(?P<replace>(ftp|ftps|sftp)://[^\s<>"{}|\\^`\[\]]+)'
+  - name: SSH URL
+    regex: '\b(?P<replace>ssh://[^\s<>"{}|\\^`\[\]]+)'
+  - name: VNC URL
+    regex: '\b(?P<replace>vnc://[^\s<>"{}|\\^`\[\]]+)'
+  - name: RDP URL
+    regex: '\b(?P<replace>rdp://[^\s<>"{}|\\^`\[\]]+)'
+  - name: Telnet URL
+    regex: '\b(?P<replace>telnet://[^\s<>"{}|\\^`\[\]]+)'
+  - name: MAIL URL
+    regex: '\b(?P<replace>(smtp|pop3|imap|nntp)://[^\s<>"{}|\\^`\[\]]+)'
+  - name: SMB URL
+    regex: '\b(?P<replace>smb://[^\s<>"{}|\\^`\[\]]+)'
+  - name: NFS URL
+    regex: '\b(?P<replace>nfs://[^\s<>"{}|\\^`\[\]]+)'
+  - name: Generic Webhook URL
+    regex: '(?P<replace>https?://[^\s]+/webhook[^\s]*)'
+  - name: Generic Callback URL  
+    regex: '(?P<replace>https?://[^\s]+/callback[^\s]*)'
+
+  # === MAC ADDRESSES ===  
+  - name: MAC Address Standard
+    regex: '\b(?P<replace>(?:[0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2})\b'
+  - name: MAC Address Cisco Format
+    regex: '\b(?P<replace>(?:[0-9a-fA-F]{4}\.){2}[0-9a-fA-F]{4})\b'
+
+  # === EMAIL ADDRESSES ===
+  - name: Email Address
+    regex: '\b(?P<replace>[a-zA-Z0-9._%+-]+@(([a-zA-Z]{1})|([a-zA-Z]{1}[a-zA-Z]{1})|([a-zA-Z]{1}[0-9]{1})|([0-9]{1}[a-zA-Z]{1})|([a-zA-Z0-9][a-zA-Z0-9-_]{1,61}[a-zA-Z0-9]))\.(?:com|org|net|edu|gov|info|biz|io|ai|co|me|tv|app|dev|tech|us|uk|de|fr|jp|cn|ru|in|br|ca|au|xyz|top|site|club|shop|online))\b'
+
+  # === DATABASE CONNECTIONS ===
+  - name: Database Connection Generic
+    regex: '(?P<replace>(?:mysql|postgresql|postgres|pgsql|mongodb|mssql|oracle|redis)://[^\s<>"{}|\\^`\[\]]+)'
+  - name: JDBC URL
+    regex: '(?P<replace>jdbc:[a-z]+://[^\s<>"{}|\\^`\[\]]+)'
+
+  # === CRYPTOGRAPHIC KEYS ===
+  - name: Private Key Begin
+    regex: '(?P<replace>-----BEGIN\s+(?:RSA\s+|DSA\s+|EC\s+|OPENSSH\s+)?PRIVATE\s+KEY-----)'
+  - name: Public Key Begin
+    regex: '(?P<replace>-----BEGIN\s+(?:RSA\s+|DSA\s+|EC\s+|OPENSSH\s+)?PUBLIC\s+KEY-----)'
+  - name: Certificate Begin
+    regex: '(?P<replace>-----BEGIN\s+CERTIFICATE-----)'
+  - name: SSH Key
+    regex: '\b(?P<replace>ssh-(?:rsa|dss|ed25519)\s+[A-Za-z0-9+/=]+)'
+
+  # === BASE64 & ENCODED DATA ===
+  - name: Base64 Long
+    regex: '\b(?P<replace>[A-Za-z0-9+/]{80,}={0,2})\b'
+  - name: Hex String Long
+    regex: '\b(?P<replace>[0-9a-fA-F]{65,})\b'
+
+  # === ENVIRONMENT & CONFIG ===
+  - name: Environment Variable
+    regex: '(?P<replace>\$\{[A-Z_][A-Z0-9_]*\}|\$[A-Z_][A-Z0-9_]*)'
+  - name: Sensitive Config Pattern
+    regex: '(?i)(?P<replace>(?:password|secret|token|key|auth|credential|pass|pwd)=[^\s;,&<>"'']+)'
+
+  # === CLOUD PROVIDER PATTERNS ===
+  - name: AWS Access Key
+    regex: '\b(A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}\b'
+  - name: Generic Cloud Key
+    regex: '(?i)(?:aws|azure|gcp|google)[_-]?(?:(access|api)[_-]?)?key[=:]\s*(?P<replace>[''"]?[a-zA-Z0-9+/=_-]{10,}[''"]?)'
+
+  # === SSH CONNECTION STRINGS ===
+  - name: SSH Connection
+    regex: '(?P<replace>[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+(?::[0-9]+)?)'
+
+  # === GENERIC SENSITIVE PATTERNS ===
+  - name: Application ID
+    regex: '(?i)(?:app|application)[_-]?id[=:]\s*(?P<replace>[''"]?[a-zA-Z0-9-_]{10,50}[''"]?)'
+  - name: Tenant ID
+    regex: '(?i)tenant[_-]?id[=:]\s*(?P<replace>[''"]?[a-zA-Z0-9-_]{10,50}[''"]?)'
+  - name: Subscription ID
+    regex: '(?i)subscription[_-]?id[=:]\s*(?P<replace>[''"]?[a-zA-Z0-9-_]{10,50}[''"]?)'
+
+  # === COMMAND LINE CREDENTIALS ===
+  - name: Command Line Password Flags
+    regex: '(?:-p|--password|--passphrase|-pw)\s+(?P<replace>[^\s]+)'
+  - name: Command Line Password Assignment
+    regex: '(?:-p|--password|--passphrase|-pw)[=:]\s*(?P<replace>[''"]?[^\s''"]+[''"]?)'
+  - name: Command Line Token Flags
+    regex: '(?:--token|-k)\s+(?P<replace>[a-zA-Z0-9._-]+)'
+  - name: Command Line API Key
+    regex: '--api-key[=:]\s*(?P<replace>[''"]?[a-zA-Z0-9+/=_-]+[''"]?)'
+
+  # === ENVIRONMENT VARIABLES ===
+  - name: Database Password Environment
+    regex: '(?i)(?:MYSQL|POSTGRES|MONGO|REDIS|ELASTIC)_(?:ROOT_)?PASSWORD=(?P<replace>[^\s]+)'
+  - name: Generic Password Environment
+    regex: '(?i)[A-Z_]*PASSWORD=(?P<replace>[^\s]+)'
+  - name: Build Token Environment
+    regex: '(?i)(?:BUILD|BUILDER)_TOKEN[=:]\s*(?P<replace>[''"]?[a-zA-Z0-9+/=_-]+[''"]?)'
+  - name: Auth Token Environment  
+    regex: '(?i)[A-Z_]*(?:AUTH_?TOKEN|API_?KEY|SECRET_?KEY|API_?SECRET)[=:]\s*(?P<replace>[''"]?[^\s''"]+[''"]?)'
+
+  # === DATABASE CONNECTION STRINGS ===
+  - name: MongoDB Connection String
+    regex: '(?P<replace>mongodb(?:\+srv)?://[^:]+:[^@]+@[^/\s]+(?:/[^\s?]+)?(?:\?[^\s]+)?)'
+  - name: Database URL with Credentials
+    regex: '(?P<replace>(?:mysql|postgresql|redis|sftp)://[^:]+:[^@]+@[^/\s]+)'
+  - name: HTTP URL with Credentials
+    regex: '(?P<replace>https?://[^:]+:[^@]+@[^\s/]+)'
+
+  # === HTTP HEADERS ===
+  - name: X-API-KEY Header
+    regex: '(?i)X-API-KEY[=:]\s*(?P<replace>[^\s]+)'
+  - name: X-Auth-Token Header
+    regex: '(?i)X-Auth-Token[=:]\s*(?P<replace>[^\s]+)'
+  - name: Access-Token Header
+    regex: '(?i)Access-Token[=:]\s*(?P<replace>[^\s]+)'
+  - name: Authorization Bearer Header
+    regex: '(?i)Authorization[=:]\s*Bearer\s+(?P<replace>[^\s]+)'
+  - name: Consumer-Secret Header
+    regex: '(?i)Consumer-Secret[=:]\s*(?P<replace>[^\s]+)'
+
+  # === WEB TOKENS & SESSIONS ===
+  - name: Access Token Parameter
+    regex: '(?i)access_token=(?P<replace>[^\s&]+)'
+  - name: Refresh Token Parameter
+    regex: '(?i)refresh_token=(?P<replace>[^\s&]+)'
+  - name: Client Secret Parameter
+    regex: '(?i)client_secret=(?P<replace>[^\s&]+)'
+  - name: Cookie Value
+    regex: '(?i)cookie[=:]\s*(?P<replace>[^;\s]+)'
+  - name: Session ID Cookie
+    regex: '(?i)session[_-]?id=(?P<replace>[^\s;,&]+)'
+
+  # === CONFIGURATION FILES ===
+  - name: XML Password Tag
+    regex: '<password>(?P<replace>[^<]+)</password>'
+  - name: MySQL Connection PHP
+    regex: 'new\s+mysqli\([^,]+,\s*[^,]+,\s*[''"](?P<replace>[^''"]+)[''"]'
+  - name: Mail Password Config
+    regex: '(?i)(smtp|mail|email)_pass=\s*(?P<replace>[^"\s\r\n\t]+)'
+  - name: Htpasswd Password
+    regex: 'htpasswd\s+-b\s+[^\s]+\s+[^\s]+\s+(?P<replace>[^\s]+)'
+
+  # === SPECIALIZED FORMATS ===
+  - name: Windows Thumbprint
+    regex: 'THUMB:(?P<replace>[A-F0-9]{40})'
+  - name: GUID Pair Format
+    regex: '(?P<replace>\{[0-9A-Fa-f-]{32,36}\}[=:]\s*\{[0-9A-Fa-f-]{32,36}\})'
+
+  # === CODING IDENTIFIERS ===
+  - name: Repository Password
+    regex: '(?i)-Drepository\.password=(?P<replace>[^\s]+)'
+
+  # === SSH & AUTHENTICATION ===
+  - name: SSH Password Parameter
+    regex: '--ssh_password\s+(?P<replace>[^\s]+)'
+  - name: Auth Credential Pattern
+    regex: '-auth\s+[^:]+:(?P<replace>[^\s]+)'
+  - name: User Credential Pattern
+    regex: '-u\s*[^:]+:(?P<replace>[^\s]+)'
+
+  # === ADVANCED TOKEN PATTERNS ===
+  - name: Pipe Token
+    regex: 'pipe=(?P<replace>[a-zA-Z0-9_]+)'
+  - name: Echo Password Pattern
+    regex: 'echo\s+[''"](?P<replace>[^''"]+)[''"].*\|\s*su\s*-'
+
+  # === SPECIALIZED TOKENS ===
+  - name: Jupyter Notebook Token
+    regex: '--NotebookApp\.token=[''"](?P<replace>[^''"]*)[''"]'
+  - name: MariaDB Password
+    regex: '--set\s+mariadbPassword=(?P<replace>[^\s]+)'
+  - name: Recovery Password
+    regex: '-recoveryPassword=(?P<replace>[^\s]+)'
+  - name: Sensor Password
+    regex: '--sensor-password\s+(?P<replace>\S+)'
+
+  # === PRODUCTION CREDENTIALS ===
+  - name: Auth Token Variable
+    regex: '(?i):_authToken=(?P<replace>[a-zA-Z0-9]+)'
+  - name: Twine Password
+    regex: '(?i)TWINE_PASSWORD=(?P<replace>[^\s]+)'
+  - name: Key File Echo
+    regex: '--key-file\s+<\(echo\s+-n\s+[''"](?P<replace>[^''"]+)[''"]'
+  - name: HTTP Password
+    regex: '--http-passwd=(?P<replace>[^\s]+)'
+  - name: Embedding Hash
+    regex: '-Embedding\s+(?P<replace>[A-Fa-f0-9]{32})'
+  - name: Repository URL with Token
+    regex: '--repository-url\s+(?P<replace>https?://[^\s]+)'
+
+  # === REAL WORLD PATTERNS ===  
+  - name: Token Assignment
+    regex: 'Token\s+(?P<replace>[a-zA-Z0-9]+)'
+  - name: API Key Short
+    regex: 'apiKey=(?P<replace>[a-zA-Z0-9]{16})'

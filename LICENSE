@@ -1,0 +1,134 @@
+VXControl Cloud SDK License
+==========================
+
+Copyright (c) 2025 VXControl LLC. All rights reserved.
+
+ABOUT THIS SOFTWARE
+
+The VXControl Cloud SDK provides secure access to the VXControl Cloud Intelligence
+Platform, enabling integration of advanced cybersecurity services including threat
+intelligence, vulnerability databases, AI-powered troubleshooting, and computational
+resources into security tools and applications. This SDK is designed to enhance
+the capabilities of security platforms including PentAGI and other cybersecurity
+solutions developed by the community.
+
+DUAL LICENSING TERMS
+
+This software is available under two separate licensing options:
+
+1. NON-COMMERCIAL LICENSE (Default)
+2. COMMERCIAL LICENSE (Available separately)
+
+NON-COMMERCIAL LICENSE
+----------------------
+
+Permission is hereby granted, free of charge, to any person or organization
+obtaining a copy of this software and associated documentation files (the "Software"),
+to use, copy, modify, and distribute the Software for NON-COMMERCIAL purposes only,
+subject to the following conditions:
+
+PERMITTED USES:
+- Personal projects and learning
+- Open source projects (with compatible licenses)
+- Academic research and education
+- Non-profit organizations
+- Internal evaluation and testing
+- Integration with PentAGI and other open-source security tools
+- Development of non-commercial cybersecurity research tools
+
+PROHIBITED USES:
+- Commercial products or services
+- Revenue-generating applications
+- Consulting or professional services
+- Redistribution in commercial products
+- Any use that generates direct or indirect financial benefit
+
+CONDITIONS:
+1. The above copyright notice and this license notice must be included in all
+   copies or substantial portions of the Software.
+
+2. Any derivative work must also be licensed under the same non-commercial terms.
+
+3. You must clearly indicate if changes were made to the original Software.
+
+4. You may not use the names "VXControl", "PentAGI", or any related trademarks
+   without explicit written permission from VXControl LLC.
+
+COMMERCIAL LICENSE
+------------------
+
+For commercial use, including but not limited to:
+- Integration into commercial security products or services
+- Use in revenue-generating cybersecurity applications
+- Commercial penetration testing or security consulting services
+- Redistribution as part of commercial security offerings
+- Integration with commercial SOC (Security Operations Center) platforms
+- Development of commercial Red Team or Blue Team tools
+
+A separate Commercial License is required. Commercial licenses are available
+from VXControl LLC and include:
+
+- Unrestricted commercial usage rights
+- Priority technical support
+- Enhanced SLA guarantees
+- Custom feature development options
+- Indemnification coverage
+- Access to premium cloud services and higher API quotas
+
+To obtain a Commercial License, contact: info@vxcontrol.com
+
+CLOUD SERVICES ACCESS
+
+Access to VXControl Cloud Intelligence Platform services requires:
+- Valid license key (obtained from VXControl LLC)
+- Compliance with service tier limitations (Free/Professional/Enterprise)
+- Adherence to acceptable use policies outlined in the EULA
+- Compliance with export control regulations for cybersecurity tools
+
+DISCLAIMER OF WARRANTIES
+------------------------
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+LIMITATION OF LIABILITY
+-----------------------
+
+IN NO EVENT SHALL VXCONTROL LLC BE LIABLE FOR ANY DIRECT, INDIRECT,
+INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.
+
+TERMINATION
+-----------
+
+This license is automatically terminated if you violate any of its terms.
+Upon termination, you must immediately cease all use of the Software and
+destroy all copies in your possession.
+
+GOVERNING LAW
+-------------
+
+This license shall be governed by and construed in accordance with the laws
+of the United Arab Emirates, without regard to its conflict of law provisions.
+
+CONTACT INFORMATION
+-------------------
+
+For questions about this license or to obtain a Commercial License:
+
+Email: info@vxcontrol.com
+Website: https://vxcontrol.com
+Subject: "Cloud SDK Commercial Licensing"
+
+================================================================================
+
+Last updated: September 2025
+License version: 1.0

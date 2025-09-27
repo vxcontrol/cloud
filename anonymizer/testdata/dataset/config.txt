@@ -1,0 +1,129 @@
+===XML Password Tag===
+<password>xml_password_123</password>
+<password>database_secret</password>
+
+===MySQL Connection PHP===
+new mysqli("localhost", "user", "dbpassword123", "database")
+new mysqli("host", "admin", "secretpass", "mydb")
+
+===Mail Password Config===
+smtp_pass=email_password
+mail_pass=mail_secret_pass
+email_pass=smtp_credentials
+
+===Auth Token Variable===
+:_authToken=abcdef1234567890
+
+===Pipe Token===
+pipe=pipe_token_123
+
+===Token Assignment===
+Token abcdef1234567890
+
+===API Key Short===
+apiKey=abcdef1234567890
+
+===Docker Hub Token===
+dckr_pat_abcdef1234567890abcdef1234567890abcdef123456
+dckr_pat_xyz789_abcdef1234567890abcdef1234567890-abc
+
+===CircleCI Token===
+circle_token=abcdef1234567890abcdef1234567890abcdef12
+CIRCLE_CI_TOKEN=1234567890abcdef1234567890abcdef12345678
+
+===Travis CI Token===
+travis_token=abcdef1234567890abcdef12
+TRAVIS_CI_TOKEN=xyz789fedcba0987654321ab
+
+===Jenkins API Token===
+jenkins_token=abcdef1234567890abcdef1234567890
+JENKINS_API_TOKEN=fedcba0987654321fedcba0987654321
+
+===CSRF Token===
+csrf_token=abcdef1234567890abcdef1234567890abcdef12
+CSRF-TOKEN=fedcba0987654321fedcba0987654321fedcba09
+
+===XSRF Token===
+xsrf_token=xyz123456789012345678901234567890xyz123
+X-XSRF-TOKEN=abc987654321098765432109876543210abc98
+
+===Anti-Forgery Token===
+__RequestVerificationToken=def456789012345678901234567890def456789
+
+===Generic Webhook Secret===
+webhook_secret=secret123456789012345678901234567890
+WEBHOOK-SECRET=webhook_abcdef1234567890abcdef1234567890
+
+===Callback Token===
+callback_token=callback_xyz123456789012345678901234567890
+CALLBACK-TOKEN=token_fedcba0987654321fedcba0987654321
+
+===AES Key Pattern===
+aes_key=ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890AB
+aes_encrypt=FEDCBA0987654321FEDCBA0987654321FEDCBA0987654321
+
+===Encryption Salt===
+salt=abcdef1234567890abcdef1234567890
+SALT="xyz123456789012345678901234567890xyz123"
+
+===IV/Nonce Pattern===
+iv=fedcba0987654321fedcba09
+nonce="abc123456789012345678901234567890abc123"
+
+===Signing Secret===
+signing_secret=sign_abcdef1234567890abcdef1234567890abcdef12
+SIGNING-SECRET=hmac_fedcba0987654321fedcba0987654321fedcba09
+
+===HMAC Secret===
+hmac_secret=hmac_xyz123456789012345678901234567890xyz123
+HMAC-SECRET=secret_abc987654321098765432109876543210abc
+
+===OIDC Client Secret===
+oidc_client_secret=oidc_abcdef1234567890abcdef1234567890abcdef12
+OIDC-CLIENT-SECRET=client_fedcba0987654321fedcba0987654321
+--oidc-client-secret=abcdef1234567890abcdef1234567890abcdef
+
+===SAML Certificate===
+saml_cert="MIIDQTCCAimgAwIBAgITBmyfz5m/jAo54vB4ikPmljZbyjANBgkqhkiG9w0BAQsF"
+SAML-CERT=LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t
+
+===Recovery Code Pattern===
+ABCD-EFGH-IJKL
+XYZT-1234-5678
+
+===Backup Code Pattern===
+backup_code=123456789012
+BACKUP-CODE=987654321098
+
+===License Key Format===
+ABCDE-12345-FGHIJ-67890-KLMNO
+XYZTW-98765-VUTSR-43210
+
+===Windows Product Key===
+ABCDE-12345-FGHIJ-67890-KLMNO
+VWXYZ-54321-QRSTU-09876-PQRST
+
+===Certificate Thumbprint===
+thumbprint=ABCDEF1234567890ABCDEF1234567890ABCDEF12
+THUMBPRINT=FEDCBA0987654321FEDCBA0987654321FEDCBA09
+
+===Database Password in DSN===
+mysql://user:secretpass@localhost:3306/database
+postgresql://admin:dbpassword@db.example.com:5432/mydb
+
+===Short API Key Pattern===
+api_key=ABCDEF1234567890ABCDEF1234567890
+API_TOKEN=FEDCBA0987654321FEDCBA0987654321
+
+===Long API Key Pattern===
+api_key=abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab
+token=fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321
+
+===Hex Token Pattern===
+token=abcdef1234567890abcdef1234567890abcdef12
+secret=fedcba0987654321fedcba0987654321fedcba09876543
+
+===Base64 Token Pattern===
+token=abcdef1234567890abcdef1234567890abcdef1234567890ab==
+bearer=fedcba0987654321fedcba0987654321fedcba0987654321==
+auth=xyz123456789012345678901234567890123456789012345=

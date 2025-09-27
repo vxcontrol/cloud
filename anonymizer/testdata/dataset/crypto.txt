@@ -1,0 +1,220 @@
+===Private Key Begin===
+-----BEGIN PRIVATE KEY-----
+-----BEGIN RSA PRIVATE KEY-----
+-----BEGIN DSA PRIVATE KEY-----
+-----BEGIN EC PRIVATE KEY-----
+
+===Public Key Begin===
+-----BEGIN PUBLIC KEY-----
+-----BEGIN RSA PUBLIC KEY-----
+
+===Certificate Begin===
+-----BEGIN CERTIFICATE-----
+
+===SSH Key===
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC7vbqajDw
+ssh-dss AAAAB3NzaC1kc3MAAACBAP1/U4EddRIpUt9KnC7s5Of2EbdSPO9EAMMeP4C2USZpRV1AIlH7WT2NWPq/xfW6MPbLm1Vs14E7gB00b/JmYLdrmVClpJ+f6AR7ECLCT7up1/63xhv4O1fnxqimFQ8E+4P208UewwI1VBNaFpEy9nXzrith1yrv8iIDGZ3RSAHHAAAAFQCjYCojVXqWH4x8TxS
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+
+===Base64 Long===
+SGVsbG8gV29ybGQhIFRoaXMgaXMgYSBsb25nIGJhc2U2NCBlbmNvZGVkIHN0cmluZyB0aGF0IGNvbnRhaW5zIG1vcmUgdGhhbiA0MCBjaGFyYWN0ZXJzLg==
+
+===Hex String Long===
+a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef1234567890abcdef
+
+===Windows Thumbprint===
+THUMB:1234567890ABCDEF1234567890ABCDEF12345678
+
+===GUID Pair Format===
+{12345678-1234-1234-1234-123456789012}:{abcdefab-abcd-abcd-abcd-abcdefabdfec}
+
+===Environment Variable===
+${API_KEY}
+$DATABASE_URL
+${SECRET_TOKEN}
+
+===Sensitive Config Pattern===
+password=my_secret_password
+secret=api_secret_key
+token=access_token_value
+
+===DSA Private Key===
+-----BEGIN DSA PRIVATE KEY-----
+MIIBuwIBAAKBgQC7vbqajDw+zFWmfiQ9L4KzQ0pg6S7dgVdT8P5Ulv1CMSjFcMnF
+-----END DSA PRIVATE KEY-----
+
+===EC Private Key===
+-----BEGIN EC PRIVATE KEY-----
+MHcCAQEEIIrYSSNdsgQY9iFAM6YDBfvQqMgIa4KlNEJdLqKE1LhqoAoGCCqGSM49
+-----END EC PRIVATE KEY-----
+
+===Encrypted DSA Private Key===
+-----BEGIN DSA PRIVATE KEY-----
+Proc-Type: 4,ENCRYPTED
+-----END DSA PRIVATE KEY-----
+
+===Encrypted EC Private Key===
+-----BEGIN EC PRIVATE KEY-----
+Proc-Type: 4,ENCRYPTED
+-----END EC PRIVATE KEY-----
+
+===Encrypted Private Key===
+-----BEGIN ENCRYPTED PRIVATE KEY-----
+MIIFHDBOBgkqhkiG9w0BBQ0wQTApBgkqhkiG9w0BBQwwHAQI
+-----END ENCRYPTED PRIVATE KEY-----
+
+===Encrypted PuTTY SSH DSA Key===
+PuTTY-User-Key-File-2: ssh-dss
+Encryption: aes256-cbc
+Private-MAC: 12345678901234567890123456789012
+
+===Encrypted RSA Private Key===
+-----BEGIN RSA PRIVATE KEY-----
+Proc-Type: 4,ENCRYPTED
+-----END RSA PRIVATE KEY-----
+
+===PGP Header===
+-----BEGIN PGP MESSAGE-----
+-----END PGP MESSAGE-----
+
+===PGP Private Key Block===
+-----BEGIN PGP PRIVATE KEY BLOCK-----
+Version: GnuPG v2.0.14
+-----END PGP PRIVATE KEY BLOCK-----
+
+===PKCS7 Encrypted Data===
+SignerInfo ::= SEQUENCE
+DigestAlgorithm
+EncryptedKey ::= OCTET
+
+===PlainText Private Key===
+-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7vbqajDw
+-----END PRIVATE KEY-----
+
+===PuTTY SSH DSA Key===
+PuTTY-User-Key-File-2: ssh-dss
+Encryption: none
+Private-MAC: 12345678901234567890123456789012
+
+===PuTTY SSH RSA Key===
+PuTTY-User-Key-File-2: ssh-rsa
+Encryption: none
+Private-MAC: 12345678901234567890123456789012
+
+===Public Key Cryptography System (PKCS)===
+protocol="application/x-pkcs7-signature"
+
+===Public encrypted key===
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7vbqajDw
+-----END PUBLIC KEY-----
+
+===RSA Private Key===
+-----BEGIN RSA PRIVATE KEY-----
+MIIEpAIBAAKCAQEA7vbqajDw+zFWmfiQ9L4KzQ0pg6S7dgVdT8P5Ulv1CMSj
+-----END RSA PRIVATE KEY-----
+
+===SSL Certificate===
+-----BEGIN CERTIFICATE-----
+MIIDQTCCAimgAwIBAgITBmyfz5m/jAo54vB4ikPmljZbyjANBgkqhkiG9w0BAQsF
+-----END CERTIFICATE-----
+
+===ssh_dss_public===
+ssh-dss AAAAB3NzaC1kc3MAAACBAP1/U4EddRIpUt9KnC7s5Of2EbdSPO9EAMMeP4C2USZpRV1AIlH7WT2NWPq/xfW6MPbLm1Vs14E7gB00b/JmYLdrmVClpJ+f6AR7ECLCT7up1/63xhv4O1fnxqimFQ8E+4P208UewwI1VBNaFpEy9nXzrith1yrv8iIDGZ3RSAHHAAAAFQCjYCojVXqWH4x8TxS==
+
+===ssh_rsa_public===
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC7vbqajDw user@example.com
+
+===ipv4===
+192.168.1.1
+10.0.0.50
+
+===Box Links===
+https://app.box.com/s/abc123def456
+https://app.box.com/l/xyz789
+
+===Dropbox Links===
+https://www.dropbox.com/s/abc123/file.txt
+https://www.dropbox.com/l/xyz789
+
+===git_repos===
+git@github.com:user/repository.git
+https://github.com/user/repo.git
+
+===Cisco Router Config===
+service timestamps log datetime msec
+interface GigabitEthernet0/1
+
+===Huawei config file===
+sysname HUAWEI
+set authentication password simple huawei
+
+===KeePass 1.x XML Passwords===
+<pwlist>
+<pwentry>
+<password>secret123</password>
+</pwentry>
+</pwlist>
+
+===Lightweight Directory Access Protocol===
+dn: cn=John Doe,ou=people,dc=example,dc=com
+
+===Metasploit Module===
+require 'msf/core'
+class Metasploit
+
+===MySQL database dump===
+DROP DATABASE IF EXISTS test;
+CREATE DATABASE test;
+DROP TABLE IF EXISTS users;
+CREATE TABLE users
+
+===MySQLite database dump===
+DROP TABLE IF EXISTS [users];
+CREATE TABLE [users];
+
+===Network Proxy Auto-Config===
+proxy.pac
+function FindProxyForURL(url, host)
+
+===Nmap Scan Report===
+Nmap scan report for example.com
+
+===Password etc passwd===
+user:x:1000:1000:User:/home/user:/bin/bash
+
+===Password etc shadow===
+user:$6$salt$hash:18000:0:99999:7:::
+
+===Samba Password config file===
+admin:1000:E52CAC67419A9A224A3B108F3FA6CB6D:8846F7EAEE8FB117AD06BDD830B7586C:[U          ]:LCT-507C0000:
+guest:1003:NO PASSWORDXXXXXXXXXXXXXXXXXXXXX:NO PASSWORDXXXXXXXXXXXXXXXXXXXXX:[NU         ]:LCT-00000000:
+
+===Kubernetes Service Account Token===
+eyJhbGciOiJSUzI1NiIsImtpZCI6InNhLXRva2VuLWtleS0xMjMifQ.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9uYW1lc3BhY2UiOiJkZWZhdWx0IiwianRpIjoiYWJjZGVmMTIzNDU2Nzg5MGFiY2RlZjEyMzQ1Njc4OTAifQ.abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12
+
+===Ansible Vault Key===
+$ANSIBLE_VAULT;1.1;AES256$abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12
+
+===Terraform Cloud Token===
+abcdef1234567890ab.atlasv1.fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321fedcba09
+
+===HashiCorp Vault Token===
+hvs.abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab
+
+===SSH Private Key Content===
+-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7vbqajDw
+-----END PRIVATE KEY-----
+
+===Certificate Content===
+-----BEGIN CERTIFICATE-----
+MIIDQTCCAimgAwIBAgITBmyfz5m/jAo54vB4ikPmljZbyjANBgkqhkiG9w0BAQsF
+-----END CERTIFICATE-----
+
+===PGP Private Key===
+-----BEGIN PGP PRIVATE KEY BLOCK-----
+Version: GnuPG v2.0.14
+lQdGBF8a1234567890abcdef1234567890abcdef1234567890abcdef1234567890
+-----END PGP PRIVATE KEY BLOCK-----

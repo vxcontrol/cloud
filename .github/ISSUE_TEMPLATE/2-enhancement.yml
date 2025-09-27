@@ -1,0 +1,116 @@
+name: "\U0001F680 Enhancement"
+description: "Suggest an enhancement for VXControl Cloud SDK"
+title: "[Enhancement]: "
+labels: ["enhancement"]
+assignees:
+  - asdek
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting an enhancement to make VXControl Cloud SDK better! Please provide as much detail as possible to help us understand your suggestion.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Target Component
+      description: Which component of VXControl Cloud SDK would this enhancement affect?
+      multiple: true
+      options:
+        - SDK Core (Call patterns, Transport, Configuration)
+        - Security Framework (PoW, Encryption, Signatures)
+        - Data Models (Request/Response types, Validation)
+        - Anonymizer Engine (PII/Secrets masking, Pattern recognition)
+        - License System (Validation, Introspection, Tier management)
+        - Examples (Integration patterns, Usage demonstrations)
+        - Documentation (README, API reference, Package docs)
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Enhancement Description
+      description: Please describe the enhancement you would like to see.
+      placeholder: |
+        Problem Statement:
+        - Current Limitation: [describe what's currently missing from SDK or could be improved]
+        - Use Case: [describe how you use VXControl Cloud SDK and why this enhancement would help]
+
+        Proposed Solution:
+        - Feature Description: [detailed description of the SDK enhancement]
+        - Expected Benefits: [how this would improve SDK integration and developer experience]
+
+        Example Scenario:
+        [Provide a concrete code example of how this enhancement would be used in security tool integration]
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Technical Details
+      description: If you have technical suggestions for implementation, please share them.
+      placeholder: |
+        Implementation Approach:
+        - SDK Changes: [changes needed to current SDK architecture]
+        - New Function Types: [any new call patterns needed]
+        - Dependencies: [new Go modules or libraries required]
+
+        Integration Points:
+        - Call Patterns: [how it affects existing function types]
+        - Data Models: [new request/response models needed]
+        - Security Framework: [PoW, encryption, or signature changes]
+        - Anonymization: [any new pattern recognition requirements]
+
+        Security Considerations:
+        - [Any cryptographic or anonymization implications to consider]
+    validations:
+      required: false
+  - type: textarea
+    attributes:
+      label: Designs and Mockups
+      description: |
+        If applicable, provide diagrams or examples to illustrate your enhancement.
+        - For API changes: sequence diagrams or function signatures
+        - For architecture changes: component diagrams or data flow
+        - For integration patterns: code examples or workflow diagrams
+      placeholder: |
+        Drag and drop images here, or provide links to external design tools.
+
+        For API flows, you can use Mermaid syntax:
+        ```mermaid
+        sequenceDiagram
+            Client->>SDK: API Call
+            SDK->>CloudAPI: Encrypted Request
+            CloudAPI->>SDK: Response
+            SDK->>Client: Processed Data
+        ```
+    validations:
+      required: false
+  - type: textarea
+    attributes:
+      label: Alternative Solutions
+      description: |
+        Please describe any alternative solutions or features you've considered.
+      placeholder: |
+        Alternative Approaches:
+        1. [First alternative approach]
+           - Pros: [benefits]
+           - Cons: [drawbacks]
+
+        2. [Second alternative approach]
+           - Pros: [benefits]
+           - Cons: [drawbacks]
+
+        Reason for Preferred Solution:
+        [Explain why your main proposal is better than these alternatives]
+    validations:
+      required: false
+  - type: checkboxes
+    id: verification
+    attributes:
+      label: Verification
+      description: Please verify the following before submitting
+      options:
+        - label: I have checked that this enhancement hasn't been already proposed
+        - label: This enhancement aligns with VXControl Cloud SDK's goal of secure cloud integration
+        - label: I have considered the security and performance implications
+        - label: I have provided clear use cases and benefits for cybersecurity applications
+    validations:
+      required: true

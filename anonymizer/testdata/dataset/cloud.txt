@@ -1,0 +1,37 @@
+===AWS Access Key===
+AKIAIOSFODNN7EXAMPLE
+AKIAI44QH8DHBEXAMPLE
+
+===Generic Cloud Key===
+aws_access_key=AKIAIOSFODNN7EXAMPLE
+gcp_api_key="gcp_service_key_123"
+azure_key=azure_access_key_value
+
+===AWS Secret Access Key===
+aws_secret_access_key=abcdef1234567890abcdef1234567890abcdef12
+AWS_SECRET_KEY=1234567890abcdef1234567890abcdef12345678
+secret_key=fedcba0987654321fedcba0987654321fedcba09
+
+===Azure Client Secret===
+azure_client_secret=1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s
+AZURE_CLIENT_SECRET=abcdef~1234567890.abcdef_1234567890-abc
+client_secret=xyz789~fedcba0987.654321_abcdef-xyz
+
+===Google OAuth Access Token===
+ya29.a0ARrdaM-abcdef1234567890abcdef1234567890abcdef1234567890
+ya29.GlwoBgN_abcdef1234567890abcdef1234567890abcdef1234567890ab
+
+===Google API Key===
+AIzaSyAbcdef1234567890abcdef1234567890a
+AIzaSyD1234567890abcdef1234567890abcdef1
+
+===Cloudinary URL===
+cloudinary://123456789012345:abcdef1234567890abcdef12@my-cloud-name
+cloudinary://987654321098765:fedcba0987654321fedcba09@test-cloud
+
+===DigitalOcean Token===
+dop_v1_abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab
+
+===Heroku API Key===
+heroku_api_key=12345678-1234-5678-9012-123456789ABC
+HEROKU_API_KEY=ABCDEF12-3456-7890-ABCD-EF1234567890

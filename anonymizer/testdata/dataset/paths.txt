@@ -1,0 +1,29 @@
+===SSH Connection===
+user@server.example.com
+admin@192.168.1.100:22
+deploy@production.company.com:2222
+
+===Database Connection Generic===
+mysql://user:password@localhost:3306/database
+postgresql://admin:secret@db.example.com:5432/mydb
+mongodb://user:pass@mongo.example.com:27017/app
+redis://user:pass@cache.example.com:6379
+mysql://admin:secret@db.example.com:3306/mydb
+postgres://admin:secret@db.example.com:5432/mydb
+redis://admin:secret@cache.example.com:6379
+
+===JDBC URL===
+jdbc:mysql://localhost:3306/database
+jdbc:postgresql://db.example.com:5432/mydb
+
+===Redis Auth Token===
+redis://:abcdef1234567890abcdef1234567890@redis.example.com:6379
+redis://:fedcba0987654321fedcba0987654321@cache.local:6379
+
+===MongoDB Connection with Auth===
+mongodb://user:password123@mongo.example.com:27017/database
+mongodb+srv://admin:secretpass@cluster.mongodb.net/myapp?retryWrites=true&w=majority
+
+===Elasticsearch API Key===
+elastic_api_key=abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef==
+ELASTICSEARCH_API_KEY=fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321==
