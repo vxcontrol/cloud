@@ -8,7 +8,7 @@
 
 ## 1. Scope and Application
 
-These Terms of Service ("Terms") govern your access to and use of the VXControl Cloud Intelligence Platform services, APIs, and data accessible through the VXControl Cloud SDK (the "Services"). These Terms are separate from and in addition to the open source license (AGPL-3.0) governing the SDK code itself.
+These Terms of Service ("Terms") govern your access to and use of the VXControl Cloud Intelligence Platform services, APIs, and data accessible through the VXControl Cloud SDK (the "Services"). These Terms are separate from and in addition to the MIT License governing the SDK code itself.
 
 **By using the Services, you acknowledge that you have read, understood, and agree to be bound by these Terms.** If you do not agree, you must not access or use the Services.
 
@@ -305,5 +305,5 @@ These Terms are governed by the laws of the United Arab Emirates. Disputes will 
 
 ---
 
-*Last updated: September 27, 2025*
-*Version 2.0 - Updated for AGPL-3.0 SDK with cloud services focus*
+*Last updated: March 25, 2026*
+*Version 2.1 - Updated for MIT Licensed SDK with cloud services focus*

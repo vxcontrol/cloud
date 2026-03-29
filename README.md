@@ -642,35 +642,49 @@ The VXControl Cloud Platform is actively expanding. Future releases may include:
 
 ### SDK License
 
-Copyright (c) 2025 VXControl LLC. All rights reserved.
+**The VXControl Cloud SDK code is licensed under the MIT License.**
 
-The **SDK code** is licensed under **GNU Affero General Public License v3.0 (AGPL-3.0)** with specific exceptions:
+Copyright (c) 2026 PentAGI Development Team
 
-**Open Source Use:**
-- **Free for open source projects** under AGPL-3.0 terms  
-- **Academic research and education**  
-- **Non-commercial projects**
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
-**Commercial Use:**  
-- **Commercial/proprietary use requires a separate license**  
-- **Enterprise licenses available** - Contact info@vxcontrol.com
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
-**Special Exception:**  
-- **Official PentAGI project** has a specific licensing exception - see [LICENSE](LICENSE) for details.
+**What this means:**
+- ✅ **Free to use** in any project (open source, commercial, proprietary)
+- ✅ **No licensing fees** for the SDK code itself
+- ✅ **Modify and distribute** freely with attribution
+- ✅ **Integrate into commercial products** without restrictions
 
-### Cloud Services Terms
+See [LICENSE](LICENSE) for complete MIT license terms.
 
-⚠️ **Important:** Using VXControl Cloud Services requires compliance with additional terms.
+### VXControl Cloud Services Access
 
-The SDK provides access to **sensitive cybersecurity data**, **threat intelligence**, **vulnerability information**, and **AI-powered assistance**. Use of these cloud services and obtained data is governed by our [Terms of Service](TERMS_OF_SERVICE.md).
+⚠️ **Important:** While the SDK code is free (MIT), accessing VXControl Cloud Services requires a valid License Key and compliance with separate terms.
 
-**Cloud services may ONLY be used for:**
+**What requires a License Key:**
+- 🔑 **API Access** to VXControl Cloud Platform services
+- 🔑 **Threat Intelligence** data and updates
+- 🔑 **AI-Powered Support** and troubleshooting assistance
+- 🔑 **Package Downloads** from secure repositories
+- 🔑 **Premium Features** and enterprise capabilities
+
+**Service Tiers:**
+- **Free Tier:** Basic error reporting and package validation
+- **Professional Tier:** AI troubleshooting, package downloads
+- **Enterprise Tier:** Full threat intelligence, priority support
+
+**Usage Restrictions:**
+Cloud services and obtained data may ONLY be used for:
 - ✅ Defensive cybersecurity and authorized security testing
 - ✅ Academic research and education in controlled environments  
 - ✅ Incident response and compliance assessment
 - ❌ **Prohibited:** Unauthorized access, malicious activities, or illegal purposes
 
-📋 **Before using cloud services, read:** [TERMS_OF_SERVICE.md](TERMS_OF_SERVICE.md)
+**Get Started:**
+1. **Use the SDK:** MIT licensed code works immediately
+2. **Get License Key:** Contact info@vxcontrol.com for cloud services access
+3. **Review Terms:** Read [TERMS_OF_SERVICE.md](TERMS_OF_SERVICE.md) before using cloud services
 
 ### Contact
 

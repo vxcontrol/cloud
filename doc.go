@@ -178,37 +178,49 @@
 //
 // # License
 //
-// Copyright (c) 2025 VXControl LLC. All rights reserved.
+// # Copyright (c) 2026 PentAGI Development Team
 //
-// This software is licensed under **GNU Affero General Public License v3.0 (AGPL-3.0)** with specific exceptions.
+// This software is licensed under the **MIT License**.
 //
-// Open Source Use:
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
 //
-//	Free for open source projects under AGPL-3.0 terms
-//	Academic research and education
-//	Non-commercial projects
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
 //
-// Commercial Use:
+// What this means for developers:
 //
-//	Commercial/proprietary use requires a separate license
-//	Enterprise licenses available - Contact info@vxcontrol.com
+//	Free to use in any project (open source, commercial, proprietary)
+//	No licensing fees for the SDK code itself
+//	Modify and distribute freely with attribution
+//	Integrate into commercial products without restrictions
 //
-// Special Exception:
+// See LICENSE file for complete MIT license terms.
 //
-//	Official PentAGI project has a specific licensing exception - see LICENSE for details.
+// # VXControl Cloud Services Access
 //
-// # Terms of Service
+// Important: While the SDK code is free (MIT), accessing VXControl Cloud Services
+// requires a valid License Key and compliance with separate Terms of Service.
 //
-// Important: Using VXControl Cloud Services requires compliance with Terms of Service.
+// The SDK provides client-side functionality to integrate with VXControl Cloud Platform,
+// but actual access to sensitive cybersecurity data, threat intelligence, vulnerability
+// information, and AI-powered assistance requires:
 //
-// The SDK provides access to sensitive cybersecurity data, threat intelligence,
-// vulnerability information, and AI-powered assistance. Use of cloud services and
-// obtained data is governed by separate Terms of Service that require:
+//	Valid License Key for API authentication
+//	Compliance with VXControl Cloud Services Terms of Service
+//	Authorized security testing and defensive cybersecurity use only
+//	Responsible handling of obtained sensitive information
 //
-//	Authorized security testing and defensive cybersecurity only
-//	Compliance with applicable laws and ethical standards
-//	Responsible handling of sensitive information
-//	No unauthorized access or malicious activities
+// Cloud Services Usage Model:
+//
+//	SDK Code: MIT licensed, free to use and modify
+//	Cloud API Access: Requires License Key (contact info@vxcontrol.com)
+//	Service Tiers: Free, Professional, and Enterprise levels available
+//	Usage Restrictions: Governed by separate Terms of Service
 //
 // Before using cloud services, read: TERMS_OF_SERVICE.md
 package cloud
