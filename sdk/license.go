@@ -61,7 +61,7 @@ func (l *LicenseInfo) IsValid() bool {
 }
 
 func (l *LicenseInfo) IsExpired() bool {
-	return l.Type == LicenseExpireable && l.ExpiredAt.After(alignDays(time.Now().UTC()))
+	return l.Type == LicenseExpireable && l.ExpiredAt.Before(alignDays(time.Now().UTC()))
 }
 
 type licenseData struct {

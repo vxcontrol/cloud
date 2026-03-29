@@ -391,8 +391,8 @@ func TestLicenseInfoMethods(t *testing.T) {
 				ExpiredAt: yesterday, // past date
 				CreatedAt: now.AddDate(0, 0, -10),
 			},
-			expectedValid:   true,  // not expired per client logic
-			expectedExpired: false, // .After(now) is false for yesterday
+			expectedValid:   false, // expired license is not valid
+			expectedExpired: true,  // .Before(now) is true for yesterday
 		},
 		{
 			name: "expireable_expires_tomorrow",
@@ -402,8 +402,8 @@ func TestLicenseInfoMethods(t *testing.T) {
 				ExpiredAt: tomorrow,
 				CreatedAt: yesterday,
 			},
-			expectedValid:   false, // !IsExpired() will be false since tomorrow.After(now) = true
-			expectedExpired: true,  // tomorrow.After(now) = true
+			expectedValid:   true,  // not expired yet, still valid
+			expectedExpired: false, // tomorrow.Before(now) = false
 		},
 		{
 			name: "invalid_perpetual_with_expiry",
@@ -425,7 +425,7 @@ func TestLicenseInfoMethods(t *testing.T) {
 				CreatedAt: tomorrow,              // future creation date
 			},
 			expectedValid:   false, // fails future CreatedAt check
-			expectedExpired: true,  // future ExpiredAt.After(now) = true
+			expectedExpired: false, // ExpiredAt.Before(now) = false
 		},
 		{
 			name: "invalid_zero_created_at",
@@ -436,7 +436,7 @@ func TestLicenseInfoMethods(t *testing.T) {
 				CreatedAt: time.Time{}, // zero time
 			},
 			expectedValid:   false, // fails zero CreatedAt check
-			expectedExpired: true,  // tomorrow.After(now) = true
+			expectedExpired: false, // tomorrow.Before(now) = false
 		},
 	}
 
