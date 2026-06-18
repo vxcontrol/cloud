@@ -28,7 +28,7 @@ sequenceDiagram
     SDK->>SDK: Solve PoW puzzle (12-1024KB)
 
     SDK->>API: HTTP request with PoW signature
-    Note over SDK,API: AES-GCM encrypted<br/>Ed25519 signed<br/>Anonymized data
+    Note over SDK,API: AES-GCM encrypted<br/>AES-CBC signed<br/>Anonymized data
 
     API->>API: Validate PoW & license
     API->>API: Process request
@@ -44,16 +44,16 @@ sequenceDiagram
 
 - **PoW System**: Memory-hard challenges (12-1024KB, 800-4000 AES iterations) with dynamic parameters for FPGA resistance
 - **Data Anonymization**: Comprehensive PII/secrets masking before AI troubleshooting transmission
-- **Cryptographic Validation**: Ed25519 signatures with SHA-512 hashing ensure data integrity
+- **Cryptographic Validation**: Ed25519 + SHA-512 signatures validate **package downloads**; AES-GCM authentication tags protect every request/response chunk
 - **Type Safety**: 24 strongly-typed call patterns with built-in Go model validation
-- **Streaming Architecture**: Memory-efficient processing with AES-GCM chunk encryption
+- **Streaming Architecture**: Memory-efficient processing with AES-GCM chunk encryption (16KB default)
 
 ## Authentication & Security
 
 All API endpoints require:
 - **PoW Challenge**: Memory-hard proof-of-work with more than 206M parameter combinations
 - **License Validation**: Cryptographic license verification with tier-based access control
-- **End-to-End Encryption**: AES-GCM streaming encryption with 1KB chunks
+- **End-to-End Encryption**: AES-128-GCM streaming encryption with 16KB chunks
 - **Forward Secrecy**: Daily server key rotation with deterministic derivation
 - **Data Anonymization**: Mandatory PII/secrets masking for all AI troubleshooting requests
 
@@ -95,16 +95,17 @@ Before using any API endpoints, ensure you understand and comply with all applic
 2. **Function Generation**: SDK creates typed functions for each endpoint
 3. **Data Anonymization**: Mandatory PII/secrets masking for support services
 4. **PoW Challenge**: Automatic challenge solving before each request
-5. **Request Signing**: Ed25519 signature generation with installation ID
-6. **Encryption**: AES-GCM encryption of request/response bodies
-7. **Type Validation**: Go models ensure data integrity throughout
+5. **Request Signing**: AES-CBC signature (nonce + timestamp + content length + CRC32) with installation ID XOR-masking
+6. **Key Exchange**: NaCL box (Curve25519) encrypts the ephemeral session key to the server
+7. **Encryption**: AES-128-GCM streaming encryption of request/response bodies (16KB chunks)
+8. **Type Validation**: Go models ensure data integrity throughout
 
 ### Core Components
 
 - **Call Patterns**: 24 function types handle different request/response scenarios
 - **Data Anonymizer**: Mandatory PII/secrets masking engine with 300+ pattern recognition
 - **Transport Layer**: HTTP/2 with connection pooling and custom TLS configuration
-- **Cryptographic Engine**: Ed25519 + AES-GCM for signatures and encryption
+- **Cryptographic Engine**: NaCL box (Curve25519) for session-key exchange + AES-128-GCM for body encryption + AES-128-CBC for PoW request signatures; Ed25519 + SHA-512 used only for package-integrity validation (`models/signature.go`)
 - **PoW Solver**: Memory-hard algorithm implementation with configurable timeout
 - **License Manager**: Cryptographic license validation and tier enforcement
 
@@ -228,29 +229,49 @@ type TicketSettings struct {
 
 ## Error Handling
 
-All endpoints return structured error responses:
+All endpoints return structured error responses. The SDK parses them into typed Go errors:
 
 ```json
 {
   "status": "error",
-  "code": "RATE_LIMIT_EXCEEDED",
-  "message": "Request rate limit exceeded",
-  "details": {
-    "current_usage": "exceeded",
-    "limit": "tier_based",
-    "reset_time": "2025-09-17T15:30:00Z"
-  }
+  "code": "TooManyRequestsRPM"
 }
 ```
 
-Common error codes:
-- `INVALID_LICENSE`: License validation failed
-- `POW_REQUIRED`: Proof-of-work challenge not solved
-- `RATE_LIMIT_EXCEEDED`: Request rate limit exceeded
-- `INSUFFICIENT_TIER`: Feature requires higher access tier
-- `INVALID_REQUEST`: Malformed request data
+### Error Codes
 
-## SDK Integration
+| Server Code | SDK Error | Retry | Notes |
+|-------------|-----------|-------|-------|
+| `BadGateway` | `sdk.ErrBadGateway` | Yes (3s) | Temporary backend overload |
+| `Internal` | `sdk.ErrServerInternal` | Yes (3s) | Temporary server error |
+| `BadRequest` | `sdk.ErrBadRequest` | No | Invalid request format |
+| `Forbidden` | `sdk.ErrForbidden` | No | Invalid license or authentication |
+| `NotFound` | `sdk.ErrNotFound` | No | Unknown endpoint |
+| `TooManyRequests` | `*sdk.RateLimitError` (General) | Yes (5s) | General rate limit |
+| `TooManyRequestsRPM` | `*sdk.RateLimitError` (RPM) | Yes (Retry-After, max 10s) | Per-minute window |
+| `TooManyRequestsRPH` | `*sdk.RateLimitError` (RPH) | No | Per-hour window — too long to auto-retry |
+| `TooManyRequestsRPD` | `*sdk.RateLimitError` (RPD) | No | Per-day window — too long to auto-retry |
+| `QuotaBlocked` | `*sdk.QuotaError` (Blocked) | Never | Endpoint unavailable for this license tier |
+| `QuotaExceededDaily` | `*sdk.QuotaError` (Daily) | No (Retry-After) | Daily quota exhausted |
+| `QuotaExceededMonthly` | `*sdk.QuotaError` (Monthly) | No (Retry-After) | Monthly quota exhausted |
+
+### Retry-After Header
+
+Rate-limit and quota responses carry a `Retry-After: <seconds>` header. The SDK embeds it in
+`*RateLimitError.RetryAfter` and `*QuotaError.RetryAfter`. Use `sdk.RetryAfterOf(err)` to read it
+from any error without type-asserting:
+
+```go
+if wait := sdk.RetryAfterOf(err); wait > 0 {
+    time.Sleep(wait) // server-suggested cooldown
+}
+```
+
+`*RateLimitError` wraps temporary rate-limit sentinels (General/RPM are auto-retried by the SDK;
+RPH/RPD are surfaced to the caller). `*QuotaError` wraps license-tier quota sentinels — all quota
+errors are fatal and never auto-retried.
+
+### SDK Integration
 
 Use the VXControl Cloud SDK for seamless integration with the platform:
 
@@ -291,6 +312,29 @@ err := sdk.Build(configs,
     sdk.WithInstallationID(system.GetInstallationID()),
     sdk.WithLicenseKey("XXXX-XXXX-XXXX-XXXX"),
 )
+```
+
+### Endpoint Health Check
+
+Use `sdk.Check()` to probe endpoint reachability and inspect allowed RPM **without making an actual API call**. Useful at startup or in health-check routines:
+
+```go
+statuses, err := sdk.Check(ctx, configs,
+    sdk.WithClient("MySecTool", "1.0.0"),
+    sdk.WithLicenseKey("XXXX-XXXX-XXXX-XXXX"),
+)
+if err != nil {
+    log.Fatal("SDK setup failed:", err)
+}
+
+for name, s := range statuses {
+    log.Printf("[%s] reachable=%v allowedRPM=%d err=%v",
+        name, s.IsReachable(), s.AllowedRPM(), s.LastError())
+}
+
+// Re-probe later (e.g. after a rate-limit cooldown)
+_ = statuses["check-updates"].Recheck(ctx)
+```
 ```
 
 ### Working Examples
@@ -404,14 +448,23 @@ The platform uses a dynamic reverse proxy for unified API management:
 
 ### Request Headers
 
-All API requests include these headers:
+Ticket request (`GET /api/v1/ticket/:name`):
 ```
-X-Client-Name: YourApp/1.0.0
-X-Installation-ID: stable-machine-uuid (from system.GetInstallationID())
-X-Request-ID: challenge-request-id
-X-Request-Sign: base64-encoded-pow-signature
-X-License-Key: encrypted-license-key (optional)
-Content-Type: application/json
+X-Installation-ID: <stable-machine-uuid>
+X-Request-ID:      <random-uuid>
+X-Request-Key:     <base64(clientPublicKey[32] + nonce[24] + encrypted(sessionKey+sessionIV+ts+len)[64])>
+X-License-Key:     <base64-encrypted-license>  (optional)
+User-Agent:        MyApp/1.0.0 sdk/1.0.0
+```
+
+Main API request:
+```
+X-Installation-ID: <stable-machine-uuid>
+X-Request-ID:      <pow-derived-request-uuid>
+X-Request-Sign:    <base64-AES-CBC-signature[48]>
+X-License-Key:     <base64-encrypted-license>  (optional)
+User-Agent:        MyApp/1.0.0 sdk/1.0.0
+Content-Type:      application/json  (when body is present)
 ```
 
 ### Installation ID Generation
@@ -446,16 +499,11 @@ Successful responses return JSON data:
 }
 ```
 
-Error responses include structured details:
+Error responses contain only `status` and `code` (see [Error Handling](#error-handling) for all codes):
 ```json
 {
   "status": "error",
-  "code": "RATE_LIMIT_EXCEEDED",
-  "message": "Request rate limit exceeded",
-  "details": {
-    "retry_after": "server_defined",
-    "quota_reset": "2025-09-26T15:30:00Z"
-  }
+  "code": "TooManyRequestsRPM"
 }
 ```
 

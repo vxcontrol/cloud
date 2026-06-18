@@ -305,7 +305,7 @@ func (c *callFunc) invokeWithRetries(cctx *callContext) error {
 
 			select {
 			case <-cctx.Done():
-				return cctx.Err()
+				return fmt.Errorf("%w: %w", cctx.Err(), err)
 			case <-time.After(waitTime):
 				// continue to retry
 			}
@@ -373,6 +373,12 @@ func (c *callFunc) invokeWithWriter(cctx *callContext) error {
 
 // calculateWaitTime determines how long to wait before retry based on error type and response
 func (c *callFunc) calculateWaitTime(err error, cctx *callContext) time.Duration {
+	// Prefer the server-advertised Retry-After (rate-limit 429s carry it in a
+	// *RateLimitError), capped by DefaultWaitTime so one retry never blocks too long.
+	var rle *RateLimitError
+	if errors.As(err, &rle) && rle.RetryAfter > 0 {
+		return min(rle.RetryAfter, DefaultWaitTime)
+	}
 	switch {
 	case errors.Is(err, ErrTooManyRequestsRPM) || errors.Is(err, ErrExperimentTimeout):
 		if cctx != nil && cctx.restWaitTime > 0 {

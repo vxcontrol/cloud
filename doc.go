@@ -43,21 +43,31 @@
 //	    },
 //	}
 //
-//	// Initialize SDK
+//	// Initialize SDK — populates all typed call functions
 //	err := sdk.Build(configs,
 //	    sdk.WithClient("MySecTool", "1.0.0"),
 //	    sdk.WithInstallationID(system.GetInstallationID()),
 //	    sdk.WithLicenseKey("your-license-key"),
 //	)
 //
+//	// Optional: probe endpoints without making real API calls
+//	statuses, err := sdk.Check(context.Background(), configs,
+//	    sdk.WithClient("MySecTool", "1.0.0"),
+//	    sdk.WithLicenseKey("your-license-key"),
+//	)
+//	// statuses["updates_check"].IsReachable(), .AllowedRPM(), .LastError(), .Recheck(ctx)
+//
 // # Core Features
 //
 // Security-First Design:
 //   - Memory-hard proof-of-work protection against abuse and DDoS attacks
-//   - Ed25519 cryptographic signatures for data integrity verification
-//   - AES-GCM end-to-end encryption with forward secrecy
+//   - NaCL (Curve25519) key exchange with AES-CBC PoW signatures and CRC32 integrity
+//   - AES-GCM end-to-end streaming encryption with forward secrecy
+//   - Ed25519 package-integrity validation (models/signature.go)
 //   - Stable machine identification for installation tracking
 //   - Mandatory PII/secrets anonymization for AI troubleshooting
+//   - Structured rate-limit and quota errors (*RateLimitError / *QuotaError) with
+//     server-advertised Retry-After; use RetryAfterOf(err) to extract it
 //
 // Type Safety:
 //   - 24 strongly-typed function patterns covering all request/response scenarios

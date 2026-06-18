@@ -13,6 +13,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/google/uuid"
@@ -107,6 +108,7 @@ func (c *callFunc) getTicket(cctx *callContext) (string, error) {
 		return "", fmt.Errorf("failed to create ticket request: %w", err)
 	}
 
+	c.sdk.applyExtraHeaders(httpReq)
 	httpReq.Header.Set(headerXInstallationID, uuid.UUID(c.sdk.installationID).String())
 	httpReq.Header.Set(headerXRequestID, requestID.String())
 	httpReq.Header.Set(headerXRequestKey, requestKeyHeader)
@@ -130,8 +132,8 @@ func (c *callFunc) getTicket(cctx *callContext) (string, error) {
 		return "", fmt.Errorf("failed to read ticket response: %w", err)
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return "", parseServerError(resp.StatusCode, body)
+	if !isSuccessStatus(resp.StatusCode) {
+		return "", parseServerError(resp.StatusCode, resp.Header, body)
 	}
 
 	decryptedBody, err := DecryptBytes(body, sessionKey, sessionIV)
@@ -154,7 +156,7 @@ func (c *callFunc) solvePoW(cctx *callContext, ticket string) (*ticketData, erro
 
 	xor(result.Catalyst[0:16], c.sdk.installationID[0:16])
 
-	ticketData := &ticketData{
+	td := &ticketData{
 		Key:        [16]byte(result.Key),
 		IV:         generateIV(c.sdk.installationID),
 		RequestID:  uuid.UUID(result.Catalyst),
@@ -163,13 +165,13 @@ func (c *callFunc) solvePoW(cctx *callContext, ticket string) (*ticketData, erro
 		WaitDelay:  result.Recipe.RestTime,
 	}
 
-	return ticketData, nil
+	return td, nil
 }
 
-func (c *callFunc) createSignature(ticketData *ticketData, contentLength int64) (string, error) {
+func (c *callFunc) createSignature(td *ticketData, contentLength int64) (string, error) {
 	// nonce[16] + randPadding[11] + version[1] + timestamp[8] + contentLength[8] + crc32[4]
 	signData := make([]byte, 48)
-	copy(signData[0:16], ticketData.Nonce[0:16])
+	copy(signData[0:16], td.Nonce[0:16])
 	xor(signData[0:16], c.sdk.installationID[0:16])
 
 	_, err := rand.Read(signData[16:27])
@@ -184,12 +186,12 @@ func (c *callFunc) createSignature(ticketData *ticketData, contentLength int64) 
 	hash := crc32.ChecksumIEEE(signData[16:44])
 	binary.BigEndian.PutUint32(signData[44:48], hash)
 
-	sc, err := aes.NewCipher(ticketData.Key[:])
+	sc, err := aes.NewCipher(td.Key[:])
 	if err != nil {
 		return "", fmt.Errorf("failed to create AES cipher: %w", err)
 	}
 
-	scb := cipher.NewCBCEncrypter(sc, ticketData.IV[:])
+	scb := cipher.NewCBCEncrypter(sc, td.IV[:])
 	scb.CryptBlocks(signData[16:48], signData[16:48])
 
 	return base64.StdEncoding.WithPadding(base64.NoPadding).EncodeToString(signData), nil
@@ -257,50 +259,72 @@ func (c *callFunc) createUserAgentHeader() string {
 	return userAgent
 }
 
-// invokeRequest performs a complete PoW-protected request
-func (c *callFunc) invokeRequest(cctx *callContext) error {
-	// step 1: get PoW ticket
+// fetchTicketData acquires and solves a PoW ticket; shared by invokeRequest and Check.
+func (c *callFunc) fetchTicketData(cctx *callContext) (*ticketData, error) {
 	ticket, err := c.getTicket(cctx)
 	if err != nil {
-		return fmt.Errorf("failed to get ticket: %w", err)
+		return nil, fmt.Errorf("failed to get ticket: %w", err)
 	}
 
-	// step 2: solve PoW challenge
-	ticketData, err := c.solvePoW(cctx, ticket)
+	td, err := c.solvePoW(cctx, ticket)
 	if err != nil {
-		return fmt.Errorf("failed to solve PoW: %w", err)
+		return nil, fmt.Errorf("failed to solve PoW: %w", err)
 	}
 
-	// step 3: prepare encrypted request
+	return td, nil
+}
+
+// newProbeContext builds a callContext with only the ticket URL set (used by Check).
+func (c *callFunc) newProbeContext(ctx context.Context) *callContext {
+	return &callContext{
+		Context: ctx,
+		reqTicketURL: url.URL{
+			Scheme: defaultScheme,
+			Host:   c.cfg.Host,
+			Path:   defaultTicketPath + c.cfg.Name,
+		},
+	}
+}
+
+// invokeRequest performs a complete PoW-protected request
+func (c *callFunc) invokeRequest(cctx *callContext) error {
+	// step 1: get ticket and solve PoW challenge
+	td, err := c.fetchTicketData(cctx)
+	if err != nil {
+		return err
+	}
+
+	// step 2: prepare encrypted request
 	var reqBody io.ReadCloser
 	if cctx.reqBodyReader != nil && cctx.reqBodyLength > 0 {
-		reqBody, err = EncryptStream(cctx.reqBodyReader, ticketData.Key, ticketData.IV)
+		reqBody, err = EncryptStream(cctx.reqBodyReader, td.Key, td.IV)
 		if err != nil {
 			return fmt.Errorf("failed to encrypt request body: %w", err)
 		}
 	}
 
-	// step 4: create signature
-	signature, err := c.createSignature(ticketData, cctx.reqBodyLength)
+	// step 3: create signature
+	signature, err := c.createSignature(td, cctx.reqBodyLength)
 	if err != nil {
 		return fmt.Errorf("failed to create signature: %w", err)
 	}
 
-	// step 5: make HTTP target request
+	// step 4: make HTTP target request
 	httpReq, err := http.NewRequestWithContext(cctx, cctx.reqMethod, cctx.reqCallURL.String(), reqBody)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
+	c.sdk.applyExtraHeaders(httpReq)
 	httpReq.Header.Set(headerXInstallationID, uuid.UUID(c.sdk.installationID).String())
-	httpReq.Header.Set(headerXRequestID, ticketData.RequestID.String())
+	httpReq.Header.Set(headerXRequestID, td.RequestID.String())
 	httpReq.Header.Set(headerXRequestSign, signature)
 	httpReq.Header.Set("User-Agent", c.createUserAgentHeader())
 	if cctx.reqBodyReader != nil && cctx.reqBodyLength > 0 {
 		httpReq.Header.Set("Content-Type", "application/json")
 	}
 	if c.sdk.licenseKey != emptyLicenseKey && c.sdk.licenseFP != emptyLicenseFP {
-		licenseKeyHeader, err := c.createLicenseKeyHeader(ticketData.Key, ticketData.IV)
+		licenseKeyHeader, err := c.createLicenseKeyHeader(td.Key, td.IV)
 		if err != nil {
 			return fmt.Errorf("failed to create license key header: %w", err)
 		}
@@ -316,12 +340,12 @@ func (c *callFunc) invokeRequest(cctx *callContext) error {
 	}
 
 	cctx.respStatusCode = resp.StatusCode
-	if cctx.respStatusCode == http.StatusOK {
+	if isSuccessStatus(cctx.respStatusCode) {
 		// response body should be closed after decryption
 		if cctx.respBodyWriter != nil {
-			err = DecryptProxy(resp.Body, cctx.respBodyWriter, ticketData.Key, ticketData.IV)
+			err = DecryptProxy(resp.Body, cctx.respBodyWriter, td.Key, td.IV)
 		} else {
-			cctx.respBodyReader, err = DecryptStream(resp.Body, ticketData.Key, ticketData.IV)
+			cctx.respBodyReader, err = DecryptStream(resp.Body, td.Key, td.IV)
 		}
 		if err != nil {
 			return fmt.Errorf("failed to decrypt response body: %w", err)
@@ -337,7 +361,7 @@ func (c *callFunc) invokeRequest(cctx *callContext) error {
 		return fmt.Errorf("failed to read response: %w", err)
 	}
 
-	return parseServerError(cctx.respStatusCode, responseBody)
+	return parseServerError(cctx.respStatusCode, resp.Header, responseBody)
 }
 
 func getServerPublicKey() *[32]byte {

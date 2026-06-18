@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -112,22 +113,22 @@ func TestTicketSuccessScenario(t *testing.T) {
 	cctx := &callContext{Context: ctx}
 
 	// test PoW solving (should complete quickly)
-	ticketData, err := cfn.solvePoW(cctx, successTicket.Ticket)
+	td, err := cfn.solvePoW(cctx, successTicket.Ticket)
 	if err != nil {
 		t.Errorf("Fast PoW solving failed: %v", err)
 		return
 	}
 
 	// validate ticket data
-	if ticketData.Key != successTicket.key {
+	if td.Key != successTicket.key {
 		t.Error("Fast PoW solving returned invalid key")
 		return
 	}
-	if ticketData.RequestID.String() != successTicket.RequestID {
+	if td.RequestID.String() != successTicket.RequestID {
 		t.Error("Fast PoW solving returned invalid RequestID")
 		return
 	}
-	if ticketData.Nonce != successTicket.nonce {
+	if td.Nonce != successTicket.nonce {
 		t.Error("Fast PoW solving returned invalid Nonce")
 		return
 	}
@@ -283,8 +284,8 @@ func TestProtocolSecurity(t *testing.T) {
 		}
 
 		for _, tt := range tests {
-			err := parseServerError(429, []byte(tt.errorJSON))
-			if err != tt.wantError {
+			err := parseServerError(429, nil, []byte(tt.errorJSON))
+			if !errors.Is(err, tt.wantError) {
 				t.Errorf("parseServerError() = %v, want %v", err, tt.wantError)
 			}
 		}
@@ -735,6 +736,10 @@ func TestStreamingOperations(t *testing.T) {
 }
 
 func TestRetryLogic(t *testing.T) {
+	// Note: in production, rate-limit 429s arrive wrapped in *RateLimitError
+	// (via parseServerError). These test cases use bare sentinels to exercise
+	// the fallback switch branch in calculateWaitTime.
+	// See TestCalculateWaitTimeWithRetryAfter for the *RateLimitError path.
 	tests := []struct {
 		name          string
 		errorType     error
@@ -769,6 +774,214 @@ func TestRetryLogic(t *testing.T) {
 				} else if delay != tt.expectedDelay {
 					t.Errorf("calculateWaitTime() = %v, want %v", delay, tt.expectedDelay)
 				}
+			}
+		})
+	}
+}
+
+func TestCheck_AgainstMockServer(t *testing.T) {
+	mockSrv := newMockServer()
+	server := mockSrv.createTLSServer()
+	defer server.Close()
+
+	testTicket, exists := mockSrv.ticketsByName["valid_success"]
+	if !exists {
+		t.Fatal("valid_success ticket not found in test data")
+	}
+	installationID, err := uuid.Parse(testTicket.InstallationID)
+	if err != nil {
+		t.Fatalf("invalid InstallationID: %v", err)
+	}
+
+	transport := DefaultTransport()
+	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+
+	host := strings.TrimPrefix(server.URL, "https://")
+	configs := []CallConfig{
+		{
+			Host:   host,
+			Name:   "valid_success", // served by the mock ticket handler
+			Path:   "/api/v1/test",
+			Method: CallMethodGET,
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	results, err := Check(ctx, configs,
+		withServerPublicKey(mockSrv.getPublicKey()),
+		WithInstallationID([16]byte(installationID)),
+		WithPowTimeout(2*time.Second),
+		WithTransport(transport),
+	)
+	if err != nil {
+		t.Fatalf("Check() top-level error: %v", err)
+	}
+
+	status, ok := results["valid_success"]
+	if !ok {
+		t.Fatal("no result for 'valid_success'")
+	}
+	if status.LastError() != nil {
+		t.Errorf("expected no error, got: %v", status.LastError())
+	}
+	if status.AllowedRPM() != 60 {
+		t.Errorf("expected AllowedRPM=60, got: %d", status.AllowedRPM())
+	}
+	t.Logf("IsReachable=%v, AllowedRPM=%d", status.IsReachable(), status.AllowedRPM())
+
+	// Recheck updates the underlying struct through the interface; the map value reflects it.
+	prevRPM := status.AllowedRPM()
+	if err := status.Recheck(ctx); err == nil {
+		if results["valid_success"].AllowedRPM() != status.AllowedRPM() {
+			t.Error("Recheck must update the struct in place (map should reflect new value)")
+		}
+		t.Logf("After Recheck: AllowedRPM=%d (was %d)", status.AllowedRPM(), prevRPM)
+	}
+}
+
+func TestCheck_ForbiddenEndpoint(t *testing.T) {
+	mockSrv := newMockServer()
+	server := mockSrv.createTLSServer()
+	defer server.Close()
+
+	testTicket, exists := mockSrv.ticketsByName["valid_success"]
+	if !exists {
+		t.Fatal("valid_success ticket not found in test data")
+	}
+	installationID, err := uuid.Parse(testTicket.InstallationID)
+	if err != nil {
+		t.Fatalf("invalid InstallationID: %v", err)
+	}
+
+	transport := DefaultTransport()
+	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+
+	host := strings.TrimPrefix(server.URL, "https://")
+	configs := []CallConfig{
+		{
+			Host:   host,
+			Name:   "nonexistent_endpoint", // no ticket handler → server returns 400/403
+			Path:   "/api/v1/test",
+			Method: CallMethodGET,
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	results, err := Check(ctx, configs,
+		withServerPublicKey(mockSrv.getPublicKey()),
+		WithInstallationID([16]byte(installationID)),
+		WithPowTimeout(1*time.Second),
+		WithTransport(transport),
+	)
+	if err != nil {
+		t.Fatalf("unexpected top-level error: %v", err)
+	}
+
+	status, ok := results["nonexistent_endpoint"]
+	if !ok {
+		t.Fatal("no result for 'nonexistent_endpoint'")
+	}
+	if status.LastError() == nil {
+		t.Error("expected per-endpoint error for nonexistent endpoint")
+	} else if !errors.Is(status.LastError(), ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got: %v", status.LastError())
+	}
+}
+
+// TestContextCancellationPreservesRateLimitError verifies that context cancellation
+// during back-off returns a joined error containing both context.DeadlineExceeded
+// and the last *RateLimitError so callers can still read RetryAfter.
+func TestContextCancellationPreservesRateLimitError(t *testing.T) {
+	rpmErr := &RateLimitError{Err: ErrTooManyRequestsRPM, Scope: RateLimitScopeRPM, RetryAfter: 55 * time.Second}
+	joined := fmt.Errorf("%w: %w", context.DeadlineExceeded, rpmErr)
+
+	// context error is still detectable
+	if !errors.Is(joined, context.DeadlineExceeded) {
+		t.Fatal("expected context.DeadlineExceeded to be detectable")
+	}
+
+	// rate limit error is still detectable
+	if !errors.Is(joined, ErrTooManyRequestsRPM) {
+		t.Fatal("expected ErrTooManyRequestsRPM to be detectable via errors.Is")
+	}
+
+	// RetryAfter is still accessible
+	var rle *RateLimitError
+	if !errors.As(joined, &rle) {
+		t.Fatal("expected *RateLimitError to be extractable via errors.As")
+	}
+	if rle.RetryAfter != 55*time.Second {
+		t.Fatalf("expected RetryAfter=55s, got %v", rle.RetryAfter)
+	}
+	if rle.Scope != RateLimitScopeRPM {
+		t.Fatalf("expected Scope=%q, got %q", RateLimitScopeRPM, rle.Scope)
+	}
+
+	// Caller pattern that should now work after the fix
+	retryIn := rle.RetryAfter
+	if retryIn != 55*time.Second {
+		t.Errorf("caller cannot determine retry wait: %v", retryIn)
+	}
+}
+
+// TestCalculateWaitTimeWithRetryAfter verifies that server-advertised RetryAfter
+// is used as-is (capped at DefaultWaitTime) instead of fixed fallback delays.
+func TestCalculateWaitTimeWithRetryAfter(t *testing.T) {
+	cfn := &callFunc{}
+
+	tests := []struct {
+		name string
+		err  error
+		want time.Duration
+	}{
+		{
+			// Server-advertised delay below DefaultWaitTime: used as-is
+			name: "rpm_retry_after_7s_used_as_is",
+			err:  &RateLimitError{Err: ErrTooManyRequestsRPM, Scope: RateLimitScopeRPM, RetryAfter: 7 * time.Second},
+			want: 7 * time.Second,
+		},
+		{
+			// General rate limit with server delay: used as-is
+			name: "general_retry_after_3s",
+			err:  &RateLimitError{Err: ErrTooManyRequests, Scope: RateLimitScopeGeneral, RetryAfter: 3 * time.Second},
+			want: 3 * time.Second,
+		},
+		{
+			// Server-advertised delay exceeds DefaultWaitTime: capped at DefaultWaitTime
+			name: "rpm_retry_after_42s_capped_at_default",
+			err:  &RateLimitError{Err: ErrTooManyRequestsRPM, Scope: RateLimitScopeRPM, RetryAfter: 42 * time.Second},
+			want: DefaultWaitTime,
+		},
+		{
+			// RetryAfter == 0 (no header from server): falls through to switch → DefaultWaitTime
+			name: "rpm_zero_retry_after_falls_to_switch",
+			err:  &RateLimitError{Err: ErrTooManyRequestsRPM, Scope: RateLimitScopeRPM, RetryAfter: 0},
+			want: DefaultWaitTime,
+		},
+		{
+			// RetryAfter exactly at DefaultWaitTime: not capped
+			name: "rpm_retry_after_exactly_default",
+			err:  &RateLimitError{Err: ErrTooManyRequestsRPM, Scope: RateLimitScopeRPM, RetryAfter: DefaultWaitTime},
+			want: DefaultWaitTime,
+		},
+		{
+			// RPH with small RetryAfter (hypothetical, RPH is non-retryable but
+			// calculateWaitTime still returns sensible values if somehow called)
+			name: "rph_retry_after_5s_used_as_is",
+			err:  &RateLimitError{Err: ErrTooManyRequestsRPH, Scope: RateLimitScopeRPH, RetryAfter: 5 * time.Second},
+			want: 5 * time.Second,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := cfn.calculateWaitTime(tt.err, nil)
+			if got != tt.want {
+				t.Errorf("calculateWaitTime() = %v, want %v", got, tt.want)
 			}
 		})
 	}

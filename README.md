@@ -23,6 +23,9 @@ The VXControl Cloud SDK enables developers to integrate their security tools and
 - **Performance Optimized**: HTTP/2 support, connection pooling, streaming encryption
 - **Enterprise Ready**: Comprehensive error handling, retry logic, and production monitoring
 - **License Integration**: Built-in premium feature validation and tier management
+- **Endpoint Health Probing**: `Check()` API for pre-flight connectivity and quota verification
+- **Structured Rate Limit Errors**: `RateLimitError` / `QuotaError` carry server-advertised `Retry-After` cooldowns
+- **Context-Safe Retries**: Cancelled context during back-off preserves the last `*RateLimitError` so callers can still read `RetryAfter`
 
 ## Quick Start
 
@@ -132,7 +135,7 @@ graph TD
     C --> S[Rate Limiting]
     D --> T[End-to-End Encryption]
     D --> V[Forward Secrecy]
-    D --> X[Ed25519 Signatures]
+    D --> X[AES-CBC Request Signing]
 ```
 
 ## Cloud Services Integration
@@ -307,29 +310,103 @@ All API calls require solving computational challenges to prevent abuse and DDoS
 
 ## Error Handling
 
+### Error Type Hierarchy
+
+The SDK defines three layers of errors:
+
+1. **Sentinel errors** — comparable with `errors.Is`, e.g. `sdk.ErrTooManyRequestsRPM`
+2. **Wrapper types** — carry extra fields, extractable with `errors.As`:
+   - `*sdk.RateLimitError` — wraps RPM/RPH/RPD/general rate-limit sentinels and carries the server-advertised `Retry-After` cooldown
+   - `*sdk.QuotaError` — wraps license-tier quota sentinels (`Blocked`, `Daily`, `Monthly`) and carries the `Retry-After` reset cooldown
+3. **Joined context errors** — when a context is cancelled during back-off, the SDK returns `fmt.Errorf("%w: %w", ctx.Err(), lastRateLimitErr)`, preserving both the context error and the rate-limit wrapper
+
+### RetryAfterOf Helper
+
+Use `sdk.RetryAfterOf(err)` to extract the server-suggested retry delay from any error, without needing to type-assert to `*RateLimitError` or `*QuotaError` directly:
+
+```go
+response, err := client.UpdatesCheck(ctx, data)
+if err != nil {
+    if wait := sdk.RetryAfterOf(err); wait > 0 {
+        log.Printf("server asks to retry after %s", wait)
+        time.Sleep(wait)
+    }
+}
+```
+
+### RateLimitError and QuotaError
+
+```go
+response, err := client.QueryThreats(ctx, body)
+if err != nil {
+    // Fine-grained rate-limit classification
+    var rle *sdk.RateLimitError
+    if errors.As(err, &rle) {
+        switch rle.Scope {
+        case sdk.RateLimitScopeRPM:
+            // minute-window: SDK already retries automatically up to maxRetries
+            time.Sleep(rle.RetryAfter)
+        case sdk.RateLimitScopeRPH:
+            // hour-window: fatal, do not auto-retry
+            log.Printf("hourly limit reached, retry after %s", rle.RetryAfter)
+        case sdk.RateLimitScopeRPD:
+            // day-window: fatal, do not auto-retry
+            log.Printf("daily limit reached, retry after %s", rle.RetryAfter)
+        }
+        return
+    }
+
+    // Quota / license-tier errors
+    var qe *sdk.QuotaError
+    if errors.As(err, &qe) {
+        switch qe.Scope {
+        case sdk.QuotaScopeBlocked:
+            log.Println("endpoint not available for this license tier")
+        case sdk.QuotaScopeDaily:
+            log.Printf("daily quota exhausted, reset in %s", qe.RetryAfter)
+        case sdk.QuotaScopeMonthly:
+            log.Printf("monthly quota exhausted, reset in %s", qe.RetryAfter)
+        }
+        return
+    }
+}
+```
+
 ### Automatic Retry Logic
 
 ```go
-// Temporary errors (automatically retried):
-// - Server overload (sdk.ErrBadGateway, sdk.ErrServerInternal)
-// - Rate limits (sdk.ErrTooManyRequests, sdk.ErrTooManyRequestsRPM)
-// - PoW timeouts (sdk.ErrExperimentTimeout)
+// Temporary errors (automatically retried up to WithMaxRetries):
+// - Server overload (sdk.ErrBadGateway, sdk.ErrServerInternal)     → 3s backoff
+// - General rate limits (sdk.ErrTooManyRequests)                   → 5s backoff
+// - RPM rate limits (sdk.ErrTooManyRequestsRPM)                    → Retry-After header (capped at DefaultWaitTime=10s)
+// - PoW timeouts (sdk.ErrExperimentTimeout)                        → DefaultWaitTime=10s backoff
 
 // Fatal errors (no retry):
-// - Invalid requests (sdk.ErrBadRequest, sdk.ErrForbidden)
-// - Missing resources (sdk.ErrNotFound)
-// - Long-term limits (sdk.ErrTooManyRequestsRPH, sdk.ErrTooManyRequestsRPD)
+// - Invalid requests (sdk.ErrBadRequest, sdk.ErrForbidden, sdk.ErrNotFound)
+// - Long-term rate limits (sdk.ErrTooManyRequestsRPH, sdk.ErrTooManyRequestsRPD)
+// - Quota errors (sdk.ErrQuotaBlocked, sdk.ErrQuotaExceededDaily, sdk.ErrQuotaExceededMonthly)
 ```
+
+The `calculateWaitTime` logic now **prefers the server-advertised `Retry-After`** value from `*RateLimitError` (capped at `DefaultWaitTime`) over fixed fallback delays.
 
 ### Custom Error Handling
 
 ```go
 data, err := api.QueryThreats(ctx, []byte(threatQuery))
 if err != nil {
+    // Check for server-suggested retry delay first (works for both RateLimitError and QuotaError)
+    if wait := sdk.RetryAfterOf(err); wait > 0 {
+        log.Printf("server suggests waiting %s before retry", wait)
+    }
+
     switch {
     case errors.Is(err, sdk.ErrTooManyRequestsRPM):
-        // Wait and retry with exponential backoff
-        time.Sleep(60 * time.Second)
+        // SDK already retried automatically; wait for server-advertised window
+        time.Sleep(sdk.RetryAfterOf(err))
+
+    case errors.Is(err, sdk.ErrQuotaBlocked):
+        // Endpoint not available for current license tier, upgrade required
+        log.Error("access denied — upgrade license tier")
 
     case errors.Is(err, sdk.ErrForbidden):
         // Check license validity or authentication
@@ -342,6 +419,78 @@ if err != nil {
     default:
         log.Error("unexpected error:", err)
     }
+}
+```
+
+## Endpoint Health Check
+
+The `Check()` function probes each configured endpoint by acquiring and solving a PoW ticket **without making an actual API call**. Use it at startup or in health-check routines to verify reachability and inspect allowed RPM quotas.
+
+### Basic Usage
+
+```go
+configs := []sdk.CallConfig{
+    {Host: "update.pentagi.com", Name: "check_updates", Path: "/api/v1/updates/check", Method: sdk.CallMethodPOST},
+    {Host: "support.pentagi.com", Name: "error_report",  Path: "/api/v1/errors/report",  Method: sdk.CallMethodPOST},
+}
+
+ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+defer cancel()
+
+statuses, err := sdk.Check(ctx, configs,
+    sdk.WithClient("MyApp", "1.0.0"),
+    sdk.WithLicenseKey("XXXX-XXXX-XXXX-XXXX"),
+)
+if err != nil {
+    log.Fatal("SDK setup failed:", err)
+}
+
+for name, s := range statuses {
+    if s.IsReachable() {
+        log.Printf("[%s] reachable, allowed RPM: %d", name, s.AllowedRPM())
+    } else {
+        log.Printf("[%s] unreachable: %v", name, s.LastError())
+    }
+}
+```
+
+### EndpointStatus Interface
+
+`Check()` returns `sdk.EndpointStatuses` — a `map[string]EndpointStatus` keyed by endpoint `Name`. Each value exposes:
+
+| Method | Description |
+|--------|-------------|
+| `LastError() error` | Last probe error, or `nil` on success |
+| `AllowedRPM() int` | Server-advertised requests-per-minute quota (0 when unreachable) |
+| `IsReachable() bool` | `true` when last probe succeeded and `AllowedRPM > 0` |
+| `Recheck(ctx) error` | Re-probes the endpoint in place and updates all fields atomically |
+
+```go
+// Re-probe a specific endpoint later (e.g. after a rate-limit cooldown)
+if err := statuses["check_updates"].Recheck(ctx); err != nil {
+    log.Println("still unreachable:", err)
+} else {
+    log.Println("now reachable, RPM:", statuses["check_updates"].AllowedRPM())
+}
+```
+
+### Error Classification in Check
+
+Top-level errors from `Check()` indicate SDK setup failures (crypto, invalid options). Per-endpoint failures are stored inside each `EndpointStatus` and use the same error sentinel hierarchy as regular calls:
+
+```go
+s := statuses["error_report"]
+switch {
+case s.LastError() == nil:
+    // reachable
+case errors.Is(s.LastError(), sdk.ErrInvalidConfiguration):
+    log.Println("bad config — fix CallConfig")
+case errors.Is(s.LastError(), sdk.ErrQuotaBlocked):
+    log.Println("endpoint not available for this license tier")
+case errors.Is(s.LastError(), sdk.ErrForbidden):
+    log.Println("license key rejected by server")
+default:
+    log.Println("network/server error:", s.LastError())
 }
 ```
 
@@ -558,11 +707,20 @@ response, err := client.UpdatesCheck(ctx, requestData)
 | Error | Type | Retry | Description |
 |-------|------|-------|-------------|
 | `sdk.ErrBadGateway` | Temporary | Yes (3s) | Server maintenance/overload |
-| `sdk.ErrTooManyRequestsRPM` | Temporary | Yes (server-defined) | Rate limit exceeded |
+| `sdk.ErrServerInternal` | Temporary | Yes (3s) | Internal server error |
+| `sdk.ErrTooManyRequests` | Temporary | Yes (5s) | General rate limit exceeded |
+| `sdk.ErrTooManyRequestsRPM` | Temporary | Yes (Retry-After, max 10s) | Per-minute rate limit exceeded |
 | `sdk.ErrExperimentTimeout` | Temporary | Yes (10s) | PoW solving timeout |
+| `sdk.ErrTooManyRequestsRPH` | Fatal | No | Per-hour rate limit exceeded |
+| `sdk.ErrTooManyRequestsRPD` | Fatal | No | Per-day rate limit exceeded |
 | `sdk.ErrForbidden` | Fatal | No | Invalid license or authentication |
 | `sdk.ErrBadRequest` | Fatal | No | Invalid request format |
 | `sdk.ErrNotFound` | Fatal | No | Unknown endpoint or resource |
+| `sdk.ErrQuotaBlocked` | Fatal | Never | Endpoint not available for this license tier |
+| `sdk.ErrQuotaExceededDaily` | Fatal | No (Retry-After via `*QuotaError`) | Daily quota exhausted |
+| `sdk.ErrQuotaExceededMonthly` | Fatal | No (Retry-After via `*QuotaError`) | Monthly quota exhausted |
+
+> **Tip:** Use `sdk.RetryAfterOf(err)` to extract the server-suggested cooldown from any error, regardless of whether it is a `*RateLimitError` or `*QuotaError` or wrapped further in a context error.
 
 ## Available Models
 
