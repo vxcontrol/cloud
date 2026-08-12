@@ -11,7 +11,8 @@
 // The cloud package consists of several core components:
 //
 //   - sdk: Main SDK package for API integration with 24 strongly-typed function patterns
-//   - models: Type-safe data models with built-in validation for all API interactions
+//   - models: Type-safe data models with built-in validation for all API interactions, plus
+//     ParseEnvelope[T] to unwrap the {"status":…,"data":…} envelope every JSON response arrives in
 //   - anonymizer: Comprehensive PII/secrets masking engine with 300+ pattern recognition
 //   - system: Cross-platform utilities for stable installation ID generation
 //   - examples: Production-ready integration examples and usage patterns
@@ -38,7 +39,7 @@
 //	        Calls:  []any{&client.UpdatesCheck},
 //	        Host:   "update.pentagi.com",
 //	        Name:   "updates_check",
-//	        Path:   "/api/v1/updates/check",
+//	        Path:   "/api/v1/proxy/updates/check",
 //	        Method: sdk.CallMethodPOST,
 //	    },
 //	}
@@ -228,7 +229,7 @@
 // Cloud Services Usage Model:
 //
 //	SDK Code: MIT licensed, free to use and modify
-//	Cloud API Access: Requires License Key (contact info@vxcontrol.com)
+//	Cloud API Access: Requires License Key (register at https://console.pentagi.com/)
 //	Service Tiers: Free, Professional, and Enterprise levels available
 //	Usage Restrictions: Governed by separate Terms of Service
 //

@@ -35,7 +35,8 @@ sequenceDiagram
     API-->>SDK: Encrypted response
 
     SDK->>SDK: Decrypt & validate
-    SDK-->>App: Typed response model
+    SDK-->>App: Response body (bytes/reader/writer)
+    App->>App: models.ParseEnvelope[T] unwraps {status,data}
 
     Note over App,API: All data validated<br/>with Go models
 ```
@@ -75,12 +76,12 @@ Before using any API endpoints, ensure you understand and comply with all applic
 
 | Service | Host | Endpoint | Method | Models | Status | Description |
 |---------|------|----------|--------|--------|--------|-------------|
-| **Update Service** | `update.pentagi.com` | `/api/v1/updates/check` | POST | [CheckUpdatesRequest](models/update.go) → [CheckUpdatesResponse](models/update.go) | ✓ Production | Check for component updates with changelogs |
-| **Package Service** | `update.pentagi.com` | `/api/v1/packages/info` | GET | [PackageInfoRequest](models/package.go) → [PackageInfoResponse](models/package.go) | ✓ Production | Get package metadata and signatures |
-| **Package Service** | `update.pentagi.com` | `/api/v1/packages/download` | GET | [DownloadPackageRequest](models/package.go) → Binary stream | ✓ Production | Download signed packages with validation |
-| **Support Service** | `support.pentagi.com` | `/api/v1/errors/report` | POST | [SupportErrorRequest](models/support.go) → [SupportErrorResponse](models/support.go) | ✓ Production | Automated error reporting with data anonymization |
-| **Support Service** | `support.pentagi.com` | `/api/v1/issues/create` | POST | [SupportIssueRequest](models/support.go) → [SupportIssueResponse](models/support.go) | ✓ Production | Create support issues with AI assistance and PII protection |
-| **AI Investigation** | `support.pentagi.com` | `/api/v1/issues/investigate` | POST | [SupportInvestigationRequest](models/support.go) → [SupportInvestigationResponse](models/support.go) | ✓ Production | AI-powered troubleshooting with secure data handling |
+| **Update Service** | `update.pentagi.com` | `/api/v1/proxy/updates/check` | POST | [CheckUpdatesRequest](models/update.go) → [CheckUpdatesResponse](models/update.go) | ✓ Production | Check for component updates with changelogs |
+| **Package Service** | `update.pentagi.com` | `/api/v1/proxy/packages/info` | GET | [PackageInfoRequest](models/package.go) → [PackageInfoResponse](models/package.go) | ✓ Production | Get package metadata and signatures |
+| **Package Service** | `update.pentagi.com` | `/api/v1/proxy/packages/download` | GET | [DownloadPackageRequest](models/package.go) → Binary stream | ✓ Production | Download signed packages with validation |
+| **Support Service** | `support.pentagi.com` | `/api/v1/proxy/errors/report` | POST | [SupportErrorRequest](models/support.go) → [SupportErrorResponse](models/support.go) | ✓ Production | Automated error reporting with data anonymization |
+| **Support Service** | `support.pentagi.com` | `/api/v1/proxy/support/issues` | POST | [SupportIssueRequest](models/support.go) → [SupportIssueResponse](models/support.go) | ✓ Production | Create support issues with AI assistance and PII protection |
+| **AI Investigation** | `support.pentagi.com` | `/api/v1/proxy/support/investigate` | POST | [SupportInvestigationRequest](models/support.go) → [SupportInvestigationResponse](models/support.go) | ✓ Production | AI-powered troubleshooting with secure data handling |
 | **Threat Intelligence** | `ti.vxcontrol.com` | `/api/v1/threats/query` | POST | ThreatQueryRequest → ThreatIntelResponse | 🚧 Development | Access real-time threat intelligence and IOC databases |
 | **Vulnerability Assessment** | `ti.vxcontrol.com` | `/api/v1/vulns/scan` | POST | VulnScanRequest → VulnScanResponse | 🚧 Development | Vulnerability assessment and exploit database queries |
 | **Knowledge Base** | `kb.vxcontrol.com` | `/api/v1/knowledge/search` | GET | Query params → KnowledgeResponse | 🚧 Development | Search cybersecurity knowledge base (MITRE ATT&CK, IOCs, vulnerabilities) |
@@ -115,11 +116,13 @@ All API requests and responses use strongly-typed Go models with built-in valida
 
 ### Available Models
 
-- **Component Management**: [models/types.go](models/types.go) - Component types, statuses, OS/architecture enums
-- **Update Service**: [models/update.go](models/update.go) - Update checking and component information
+- **Component Management**: [models/types.go](models/types.go) - Component types, statuses, OS/architecture enums, and their mapping to product stacks
+- **Artefact Delivery & Update Vocabulary**: [models/artefacts.go](models/artefacts.go), [models/answer.go](models/answer.go) - Whether a component is a pulled image or a downloaded file, and the shared vocabulary for update answers (`ComponentAction`, `ComponentReason`, `StackResolution`, `StackStatus`)
+- **Update Service**: [models/update.go](models/update.go) - Update checking split by images/files, with a per-component action and the curated releases crossed on the way
 - **Package Service**: [models/package.go](models/package.go) - Package metadata, downloads, signatures
-- **Support Service**: [models/support.go](models/support.go) - Error reporting, AI-powered issue creation and investigation
+- **Support Service**: [models/support.go](models/support.go) - Error reporting, AI-powered issue creation and investigation, including the streamed answer form
 - **Signature Validation**: [models/signature.go](models/signature.go) - Ed25519 cryptographic signature validation
+- **Response Envelope**: [models/envelope.go](models/envelope.go) - `ParseEnvelope[T]` unwraps the `{"status":…,"data":…}` wrapper every JSON response arrives in
 - **Data Anonymization**: [anonymizer/](anonymizer/) - PII/secrets masking with pattern recognition
 - **System Utilities**: [system/](system/) - Cross-platform installation ID generation and machine identification
 
@@ -152,16 +155,37 @@ The SDK provides 24 strongly-typed function patterns covering all request/respon
 
 ### Complete Pattern Matrix
 
+Every combination of request shape, request body and response shape that the SDK generates:
+
 | Request | Body | Response | Function Type | Use Case |
 |---------|------|----------|---------------|----------|
 | None | None | Bytes | `CallReqRespBytes` | Simple data retrieval |
 | None | None | Reader | `CallReqRespReader` | Large file downloads |
 | None | None | Writer | `CallReqRespWriter` | Direct output streaming |
 | Query | None | Bytes | `CallReqQueryRespBytes` | Filtered data queries |
+| Query | None | Reader | `CallReqQueryRespReader` | Query-based downloads |
+| Query | None | Writer | `CallReqQueryRespWriter` | Query-based streaming (`packages/download`) |
 | Args | None | Bytes | `CallReqWithArgsRespBytes` | Resource-specific requests |
+| Args | None | Reader | `CallReqWithArgsRespReader` | Resource-specific downloads |
+| Args | None | Writer | `CallReqWithArgsRespWriter` | Resource-specific streaming |
+| Query+Args | None | Bytes | `CallReqQueryWithArgsRespBytes` | Combined path + query lookups |
+| Query+Args | None | Reader | `CallReqQueryWithArgsRespReader` | Combined lookups, streamed response |
+| Query+Args | None | Writer | `CallReqQueryWithArgsRespWriter` | Combined lookups streamed to a writer |
 | None | Bytes | Bytes | `CallReqBytesRespBytes` | JSON API calls |
+| None | Bytes | Reader | `CallReqBytesRespReader` | JSON request, SSE/streamed response |
+| None | Bytes | Writer | `CallReqBytesRespWriter` | JSON request, response streamed to a writer |
 | None | Reader | Bytes | `CallReqReaderRespBytes` | Large file uploads |
+| None | Reader | Reader | `CallReqReaderRespReader` | Stream-to-stream processing |
+| None | Reader | Writer | `CallReqReaderRespWriter` | Streamed upload with streamed output |
 | Args | Bytes | Bytes | `CallReqBytesWithArgsRespBytes` | Resource updates |
+| Args | Bytes | Reader | `CallReqBytesWithArgsRespReader` | Resource updates with a streamed response |
+| Args | Bytes | Writer | `CallReqBytesWithArgsRespWriter` | Resource updates streamed to a writer |
+| Args | Reader | Bytes | `CallReqReaderWithArgsRespBytes` | Streamed uploads to a specific resource |
+| Args | Reader | Reader | `CallReqReaderWithArgsRespReader` | Resource-targeted stream processing |
+| Args | Reader | Writer | `CallReqReaderWithArgsRespWriter` | Resource-targeted streamed upload/download |
+
+Only `Bytes`-body calls are retried automatically on a temporary failure (see [Error Handling](#error-handling));
+a `Reader`-body call cannot be rewound after a failed attempt, so the SDK forces a single attempt for it.
 
 ## Data Anonymization
 
@@ -287,14 +311,14 @@ configs := []sdk.CallConfig{
         Calls:  []any{&checkUpdates},
         Host:   "update.pentagi.com",
         Name:   "check-updates",
-        Path:   "/api/v1/updates/check",
+        Path:   "/api/v1/proxy/updates/check",
         Method: sdk.CallMethodPOST,
     },
     {
         Calls:  []any{&reportError},
         Host:   "support.pentagi.com",
         Name:   "report-error",
-        Path:   "/api/v1/errors/report",
+        Path:   "/api/v1/proxy/errors/report",
         Method: sdk.CallMethodPOST,
     },
     {
@@ -353,7 +377,7 @@ type Client struct {
     UpdatesCheck     sdk.CallReqBytesRespBytes
     PackageDownload  sdk.CallReqQueryRespWriter
     ErrorReport      sdk.CallReqBytesRespBytes
-    IssueInvestigate sdk.CallReqBytesRespReader  // Steam response support
+    IssueInvestigate sdk.CallReqBytesRespReader  // Stream response support
 }
 
 configs := []sdk.CallConfig{
@@ -361,14 +385,14 @@ configs := []sdk.CallConfig{
         Calls:  []any{&client.UpdatesCheck},
         Host:   "update.pentagi.com",
         Name:   "updates_check",
-        Path:   "/api/v1/updates/check",
+        Path:   "/api/v1/proxy/updates/check",
         Method: sdk.CallMethodPOST,
     },
     {
         Calls:  []any{&client.ErrorReport},
         Host:   "support.pentagi.com",
-        Name:   "error_report",
-        Path:   "/api/v1/errors/report",
+        Name:   "errors_report",
+        Path:   "/api/v1/proxy/errors/report",
         Method: sdk.CallMethodPOST,
     },
 }
@@ -491,7 +515,7 @@ installationID := system.GetInstallationID()
 
 ### Response Format
 
-Successful responses return JSON data:
+Successful responses return JSON data wrapped in an envelope:
 ```json
 {
   "status": "success",
@@ -506,6 +530,20 @@ Error responses contain only `status` and `code` (see [Error Handling](#error-ha
   "code": "TooManyRequestsRPM"
 }
 ```
+
+**Always decode the body through `models.ParseEnvelope[T]`, never straight into the payload type.** Unmarshalling `{"status":"success","data":{...}}` directly into e.g.
+`CheckUpdatesResponse` does not fail — it silently produces a zero-value response, which reads as "nothing to report" instead of the actual answer:
+
+```go
+// Wrong: "succeeds" and yields an empty CheckUpdatesResponse
+var resp models.CheckUpdatesResponse
+json.Unmarshal(body, &resp)
+
+// Right: unwraps the envelope, and returns *models.APIError on a "status":"error" body
+resp, err := models.ParseEnvelope[models.CheckUpdatesResponse](body)
+```
+
+A streamed answer (`SupportInvestigationRequest.UseStream: true`) is the one exception — it is raw `text/event-stream` SSE, not wrapped in this envelope.
 
 ### Streaming Encryption
 

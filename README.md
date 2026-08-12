@@ -66,14 +66,14 @@ func main() {
             Calls:  []any{&client.UpdatesCheck},
             Host:   "update.pentagi.com",
             Name:   "updates_check",
-            Path:   "/api/v1/updates/check",
+            Path:   "/api/v1/proxy/updates/check",
             Method: sdk.CallMethodPOST,
         },
         {
             Calls:  []any{&client.ReportError},
             Host:   "support.pentagi.com",
-            Name:   "error_report",
-            Path:   "/api/v1/errors/report",
+            Name:   "errors_report",
+            Path:   "/api/v1/proxy/errors/report",
             Method: sdk.CallMethodPOST,
         },
     }
@@ -89,11 +89,14 @@ func main() {
         log.Fatal("SDK initialization failed:", err)
     }
 
-    // Check for updates
+    // Check for updates. Strategy is required — it tells the server whether to
+    // resolve components against a curated release ("stable"), a release plus
+    // channel metadata ("preview"), or the raw channel alone ("nightly").
     updateReq := models.CheckUpdatesRequest{
         InstallerVersion: "1.0.0",
         InstallerOS:      models.OSTypeLinux,
         InstallerArch:    models.ArchTypeAMD64,
+        Strategy:         models.UpdateStrategyStable,
     }
 
     data, _ := json.Marshal(updateReq)
@@ -102,8 +105,13 @@ func main() {
         log.Fatal("Update check failed:", err)
     }
 
-    var updateResp models.CheckUpdatesResponse
-    json.Unmarshal(response, &updateResp)
+    // Every response body arrives wrapped in {"status":…,"data":…}. Decoding it
+    // straight into CheckUpdatesResponse "succeeds" and silently yields an empty
+    // update list — always unwrap it with ParseEnvelope instead.
+    updateResp, err := models.ParseEnvelope[models.CheckUpdatesResponse](response)
+    if err != nil {
+        log.Fatal("Update check failed:", err)
+    }
     log.Printf("Available updates: %+v", updateResp.Updates)
 }
 ```
@@ -146,25 +154,34 @@ Keep PentAGI with automated update checking:
 ```go
 import "github.com/vxcontrol/cloud/models"
 
-// Check for component updates
+// Check for component updates. Installed artefacts are reported separately by
+// how they are delivered: pulled container images vs. downloaded files.
+// Report every product stack you know about too, including unused ones — a
+// stack hosted externally and a stack nobody uses look identical otherwise.
 updateReq := models.CheckUpdatesRequest{
     InstallerVersion: "1.0.0",
     InstallerOS:      models.OSTypeLinux,
     InstallerArch:    models.ArchTypeAMD64,
-    Components: []models.ComponentInfo{
+    Strategy:         models.UpdateStrategyStable,
+    Images: []models.ImageComponentInfo{
         {
-            Component: models.ComponentTypePentagi,
-            Status:    models.ComponentStatusRunning,
-            Version:   &[]string{"1.2.0"}[0],
+            Component:  models.ComponentTypePentagi,
+            Status:     models.ComponentStatusRunning,
+            OS:         models.OSTypeLinux, // the ARTEFACT's platform, not the host's
+            Arch:       models.ArchTypeAMD64,
+            Repository: "vxcontrol/pentagi",
+            Tag:        "latest",
         },
+    },
+    Stacks: []models.StackInfo{
+        {Stack: models.ProductStackPentagi, Status: models.StackStatusInstalled},
     },
 }
 
 data, _ := json.Marshal(updateReq)
 response, err := client.UpdatesCheck(ctx, data)
 
-var updateResp models.CheckUpdatesResponse
-json.Unmarshal(response, &updateResp)
+updateResp, err := models.ParseEnvelope[models.CheckUpdatesResponse](response)
 ```
 
 ### Error Reporting & AI Support
@@ -227,25 +244,59 @@ issueReq := models.SupportIssueRequest{
     },
 }
 
-// Investigate with AI assistance
+// Investigate with AI assistance. IssueID is the value returned by the
+// SupportIssueResponse above — it is how a client keeps a multi-turn
+// conversation about the same issue across separate calls.
 investigationReq := models.SupportInvestigationRequest{
     IssueID:   receivedIssueID,
     UserInput: "The scanner works fine with other patterns but fails on this specific CVE",
 }
+
+// Bind IssueInvestigate to CallReqBytesRespBytes for the default JSON answer:
+data, _ := json.Marshal(investigationReq)
+response, err := client.IssueInvestigate(ctx, data)
+answer, err := models.ParseEnvelope[models.SupportInvestigationResponse](response)
+// answer.Answer is the reply text; answer.MsgLogs carries the full anonymised
+// conversation transcript when the server attaches one.
+
+// Or set UseStream and bind IssueInvestigate to CallReqBytesRespReader instead,
+// to receive the same answer incrementally as Server-Sent Events — the stream
+// is NOT wrapped in the {"status":…,"data":…} envelope, unlike every other response.
+investigationReq.UseStream = true
 ```
 
 ## Call Function Types
 
-The SDK supports 24 function patterns to handle different request/response scenarios:
+The SDK generates 24 strongly-typed function patterns, one for every combination of request shape (none / query / path args / query+args), request body (none / bytes / reader), and response shape (bytes / reader / writer). Assign the field a value of one of these types and `sdk.Build` fills it in for the `CallConfig` it matches:
 
-| Pattern | Request | Response | Use Case |
-|---------|---------|----------|----------|
-| `CallReqRespBytes` | None | Bytes | Simple data retrieval |
-| `CallReqQueryRespBytes` | Query params | Bytes | Filtered data queries |
-| `CallReqWithArgsRespBytes` | Path args | Bytes | Resource-specific requests |
-| `CallReqBytesRespBytes` | Body data | Bytes | Data submission/processing |
-| `CallReqReaderRespReader` | Stream | Stream | Large file processing |
-| `CallReqReaderRespWriter` | Stream | Writer | Direct output streaming |
+| Pattern | Request | Body | Response | Use Case |
+|---------|---------|------|----------|----------|
+| `CallReqRespBytes` | None | None | Bytes | Simple JSON/binary retrieval |
+| `CallReqRespReader` | None | None | Reader | Large downloads as a stream |
+| `CallReqRespWriter` | None | None | Writer | Stream a response into an `io.Writer` |
+| `CallReqQueryRespBytes` | Query | None | Bytes | Filtered queries (`?limit=10&offset=20`) |
+| `CallReqQueryRespReader` | Query | None | Reader | Query-based downloads |
+| `CallReqQueryRespWriter` | Query | None | Writer | Query-based streaming (used by `download-installer`) |
+| `CallReqWithArgsRespBytes` | Path args | None | Bytes | RESTful resource access (`/users/:id`) |
+| `CallReqWithArgsRespReader` | Path args | None | Reader | Resource-specific downloads |
+| `CallReqWithArgsRespWriter` | Path args | None | Writer | Resource-specific streaming |
+| `CallReqQueryWithArgsRespBytes` | Path args + Query | None | Bytes | Combined path + query lookups |
+| `CallReqQueryWithArgsRespReader` | Path args + Query | None | Reader | Combined lookups, streamed response |
+| `CallReqQueryWithArgsRespWriter` | Path args + Query | None | Writer | Combined lookups streamed to a writer |
+| `CallReqBytesRespBytes` | None | Bytes | Bytes | JSON API calls (used by `check-update`, `report-errors`) |
+| `CallReqBytesRespReader` | None | Bytes | Reader | JSON request, SSE/streamed response (AI investigation) |
+| `CallReqBytesRespWriter` | None | Bytes | Writer | JSON request, response streamed to a writer |
+| `CallReqReaderRespBytes` | None | Reader | Bytes | Streamed upload, JSON response |
+| `CallReqReaderRespReader` | None | Reader | Reader | Stream-to-stream processing |
+| `CallReqReaderRespWriter` | None | Reader | Writer | Streamed upload with streamed output |
+| `CallReqBytesWithArgsRespBytes` | Path args | Bytes | Bytes | Resource updates with a JSON body |
+| `CallReqBytesWithArgsRespReader` | Path args | Bytes | Reader | Resource updates with a streamed response |
+| `CallReqBytesWithArgsRespWriter` | Path args | Bytes | Writer | Resource updates streamed to a writer |
+| `CallReqReaderWithArgsRespBytes` | Path args | Reader | Bytes | Streamed uploads to a specific resource |
+| `CallReqReaderWithArgsRespReader` | Path args | Reader | Reader | Resource-targeted stream processing |
+| `CallReqReaderWithArgsRespWriter` | Path args | Reader | Writer | Resource-targeted streamed upload/download |
+
+> **Note:** only calls with a `[]byte` body (`*Bytes*` variants) are retried automatically on a temporary failure — see [Automatic Retry Logic](#automatic-retry-logic). A call built with a raw `io.Reader` body cannot be rewound after a failed attempt, so the SDK disables retries for it.
 
 [Complete function reference](https://pkg.go.dev/github.com/vxcontrol/cloud/sdk)
 
@@ -389,6 +440,8 @@ if err != nil {
 
 The `calculateWaitTime` logic now **prefers the server-advertised `Retry-After`** value from `*RateLimitError` (capped at `DefaultWaitTime`) over fixed fallback delays.
 
+> **Streamed request bodies are never retried.** Calls built with a raw `io.Reader` body (`CallReqReaderRespBytes` and its siblings) cannot be rewound after a failed attempt, so the SDK forces a single attempt for them regardless of `WithMaxRetries`. Calls with a `[]byte` body (`CallReqBytesRespBytes` and its siblings — what all three [examples](examples/) use) are retried normally: a fresh reader is created for every attempt.
+
 ### Custom Error Handling
 
 ```go
@@ -430,8 +483,8 @@ The `Check()` function probes each configured endpoint by acquiring and solving 
 
 ```go
 configs := []sdk.CallConfig{
-    {Host: "update.pentagi.com", Name: "check_updates", Path: "/api/v1/updates/check", Method: sdk.CallMethodPOST},
-    {Host: "support.pentagi.com", Name: "error_report",  Path: "/api/v1/errors/report",  Method: sdk.CallMethodPOST},
+    {Host: "update.pentagi.com", Name: "updates_check", Path: "/api/v1/proxy/updates/check", Method: sdk.CallMethodPOST},
+    {Host: "support.pentagi.com", Name: "errors_report",  Path: "/api/v1/proxy/errors/report",  Method: sdk.CallMethodPOST},
 }
 
 ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -467,10 +520,10 @@ for name, s := range statuses {
 
 ```go
 // Re-probe a specific endpoint later (e.g. after a rate-limit cooldown)
-if err := statuses["check_updates"].Recheck(ctx); err != nil {
+if err := statuses["updates_check"].Recheck(ctx); err != nil {
     log.Println("still unreachable:", err)
 } else {
-    log.Println("now reachable, RPM:", statuses["check_updates"].AllowedRPM())
+    log.Println("now reachable, RPM:", statuses["updates_check"].AllowedRPM())
 }
 ```
 
@@ -479,7 +532,7 @@ if err := statuses["check_updates"].Recheck(ctx); err != nil {
 Top-level errors from `Check()` indicate SDK setup failures (crypto, invalid options). Per-endpoint failures are stored inside each `EndpointStatus` and use the same error sentinel hierarchy as regular calls:
 
 ```go
-s := statuses["error_report"]
+s := statuses["errors_report"]
 switch {
 case s.LastError() == nil:
     // reachable
@@ -568,12 +621,16 @@ sdk.WithLogger(logger)
 
 ```go
 // Integrate update checking into security tools
-func checkSecurityToolUpdates(components []models.ComponentInfo) error {
+func checkSecurityToolUpdates(
+    images []models.ImageComponentInfo, files []models.FileComponentInfo,
+) error {
     updateReq := models.CheckUpdatesRequest{
         InstallerVersion: getCurrentVersion(),
         InstallerOS:      getCurrentOS(),
         InstallerArch:    getCurrentArch(),
-        Components:       components,
+        Strategy:         models.UpdateStrategyStable,
+        Images:           images,
+        Files:            files,
     }
 
     data, _ := json.Marshal(updateReq)
@@ -582,14 +639,19 @@ func checkSecurityToolUpdates(components []models.ComponentInfo) error {
         return err
     }
 
-    var updateResp models.CheckUpdatesResponse
-    json.Unmarshal(response, &updateResp)
+    updateResp, err := models.ParseEnvelope[models.CheckUpdatesResponse](response)
+    if err != nil {
+        return err
+    }
 
     for _, update := range updateResp.Updates {
-        if update.HasUpdate {
-            log.Printf("Update available for %s: %s -> %s",
-                update.Stack, *update.CurrentVersion, *update.LatestVersion)
+        if !update.HasUpdate {
+            continue
         }
+        // CurrentVersion/LatestVersion are only set when the server could
+        // attribute the stack to a release — read Resolution to see why when
+        // they are nil (e.g. an installation ahead of any curated release).
+        log.Printf("Update available for stack %s (resolved via %s)", update.Stack, update.Resolution)
     }
 
     return nil
@@ -664,22 +726,22 @@ configs := []sdk.CallConfig{
     {
         Calls:  []any{&client.UpdatesCheck},
         Host:   "update.pentagi.com",
-        Name:   "check_updates",
-        Path:   "/api/v1/updates/check",
+        Name:   "updates_check",
+        Path:   "/api/v1/proxy/updates/check",
         Method: sdk.CallMethodPOST,
     },
     {
         Calls:  []any{&client.ErrorReport},
         Host:   "support.pentagi.com",
-        Name:   "error_report",
-        Path:   "/api/v1/errors/report",
+        Name:   "errors_report",
+        Path:   "/api/v1/proxy/errors/report",
         Method: sdk.CallMethodPOST,
     },
     {
         Calls:  []any{&client.PackageInfo},
         Host:   "update.pentagi.com",
-        Name:   "package_info",
-        Path:   "/api/v1/packages/info",
+        Name:   "packages_info",
+        Path:   "/api/v1/proxy/packages/info",
         Method: sdk.CallMethodPOST,
     },
 }
@@ -726,28 +788,39 @@ response, err := client.UpdatesCheck(ctx, requestData)
 
 The SDK provides strongly-typed models for all API interactions:
 
+### Response Envelope
+- `models.ParseEnvelope[T](body)`: **use this to read every JSON response.** The server wraps every answer as `{"status":…,"data":…}`; unmarshalling the body straight into its payload type "succeeds" and silently yields a zero value (e.g. an empty update list), which is the single easiest mistake to make against this API. `ParseEnvelope` unwraps it and returns a typed `T`. A streamed answer (`UseStream: true` on an investigation) is the one exception — it is raw SSE, not wrapped in this envelope.
+- `*models.APIError`: returned by `ParseEnvelope` when the envelope's `status` is not `"success"`; carries `Code`/`Msg`/`Cause` as reported by the server.
+
 ### Component Management
-- `ComponentType`: pentagi, scraper, langfuse-worker, langfuse-web, grafana, otelcol, worker, installer, engine
+- `ComponentType`: the component vocabulary. Use the constants — `models.ComponentTypePentagi` and friends — and read [`models/types.go`](models/types.go) for the full set; it is the authority and it grows. A raw string that is not in it fails validation for the WHOLE request, not just for the component carrying it.
+  - `ComponentType.ArtifactKind()` / `.IsFileComponent()` / `.IsImageComponent()`: how a component is delivered — pulled image vs. downloaded file — which decides whether it belongs in a request's `Images` or `Files` list. See [`models/artefacts.go`](models/artefacts.go).
+  - `ComponentType.GetProductStack()` (and `models.ComponentToStackMapping`): which product stack a component is versioned with — the update check answers per stack, not per component.
 - `ComponentStatus`: unused, connected, installed, running
-- `ProductStack`: pentagi, langfuse, observability, worker, installer, engine
+- `ProductStack`: pentagi, langfuse, observability, worker, installer, engine, graphiti, browser
 - `OSType`: windows, linux, darwin
 - `ArchType`: amd64, arm64
 
 ### Update Service Models
-- `CheckUpdatesRequest` / `CheckUpdatesResponse`: Check for component updates
-- `ComponentInfo`: Information about installed components
-- `UpdateInfo`: Available update details with changelog
+- `CheckUpdatesRequest` / `CheckUpdatesResponse`: Check for component updates. `Strategy` (`UpdateStrategyNightly` / `Preview` / `Stable`) is required and selects how the server resolves every reported component.
+- `ImageComponentInfo` / `FileComponentInfo`: Installed artefacts, reported separately by how they are delivered — an image is named by a registry reference and a digest, a file by a version and a hash, and no artefact is ever both.
+- `StackInfo`: How this installation uses one product stack (`StackStatusUnused` / `Connected` / `Installed` / `External`) — report every stack you know about, including unused ones, so "hosted externally" and "not used at all" don't look identical.
+- `UpdateInfo`: The per-stack answer — `Images` / `Files` (each with a `ComponentAction` telling you what to do about it), plus the `Releases` crossed on the way to the target version.
+- `ImageUpdate` / `FileUpdate`: One resolved artefact — the reference/package to pull or download, its digests or hash, and whether it is pinned to a curated release.
+- `ReleaseNote`: One curated release crossed by an update, with its own changelog and release notes.
+- `ComponentAction` / `ComponentReason` / `StackResolution` / `StackStatus`: The shared vocabulary describing what to do with an artefact and why — see [`models/answer.go`](models/answer.go).
 
 ### Package Service Models
-- `PackageInfoRequest` / `PackageInfoResponse`: Get package metadata
+- `PackageInfoRequest` / `PackageInfoResponse`: Get package metadata. Only components delivered as files (`ComponentType.IsFileComponent()`) have a package to request.
 - `DownloadPackageRequest`: Request package downloads
 - `SignatureValue`: Cryptographic signature validation
 
 ### Support Service Models
-- `SupportErrorRequest` / `SupportErrorResponse`: Automated error reporting
-- `SupportIssueRequest` / `SupportIssueResponse`: Manual issue creation with AI
+- `SupportErrorRequest` / `SupportErrorResponse`: Automated error reporting, optionally with per-component `Logs`
+- `SupportIssueRequest` / `SupportIssueResponse`: Manual issue creation with AI; the response's `IssueID` is what later `SupportInvestigationRequest` calls address
 - `SupportLogs`: Component log collection
-- `SupportInvestigationRequest` / `SupportInvestigationResponse`: AI-powered troubleshooting
+- `SupportInvestigationRequest` / `SupportInvestigationResponse`: AI-powered troubleshooting. Set `UseStream: true` and bind a streaming call type (`CallReqBytesRespReader`/`Writer`) to receive the answer as Server-Sent Events instead of one JSON response.
+- `SupportMsgLog` / `MsgLogType`: One message of the (anonymised) investigation conversation, returned in `SupportInvestigationResponse.MsgLogs`. `MsgLogTypeWait` is a real value you will see: the server sends it (with a translated "please wait" message) when an investigation has to wait for the issue's background log analysis to finish first — no retry needed, the same call resolves once the wait is over.
 
 ### System Utilities
 - `system.GetInstallationID()`: Generates stable, machine-specific UUID for installation tracking
@@ -841,10 +914,11 @@ Cloud services and obtained data may ONLY be used for:
 
 **Get Started:**
 1. **Use the SDK:** MIT licensed code works immediately
-2. **Get License Key:** Contact info@vxcontrol.com for cloud services access
+2. **Get a License Key:** Register at [console.pentagi.com](https://console.pentagi.com/) to obtain a license key for cloud services access
 3. **Review Terms:** Read [TERMS_OF_SERVICE.md](TERMS_OF_SERVICE.md) before using cloud services
 
 ### Contact
 
+For license keys and account management: **[console.pentagi.com](https://console.pentagi.com/)**  
 For licensing questions: **info@vxcontrol.com**  
 For Terms of Service violations: **info@vxcontrol.com** (Subject: "Cloud Services Terms")

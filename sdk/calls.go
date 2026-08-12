@@ -241,24 +241,33 @@ type pathGenerator func(args []string) (string, error)
 
 // call request parameters and response results
 type callContext struct {
-	reqCallURL      url.URL           // request call target URL
-	reqTicketURL    url.URL           // request ticket URL
-	reqMethod       string            // request method
-	reqPathArgs     []string          // position arguments for path template
-	reqQueryArgs    map[string]string // request query parameters
-	reqBodyReader   io.Reader         // optional input argument if body is provided
-	reqBodyLength   int64             // size of the original body in bytes
-	respStatusCode  int               // fill after invoke
-	respBodyWriter  io.Writer         // optional input argument
-	respBodyReader  io.ReadCloser     // fill after invoke
-	restWaitTime    time.Duration     // fill after invoke if error is temporary
-	context.Context                   // original context
+	reqCallURL        url.URL                   // request call target URL
+	reqTicketURL      url.URL                   // request ticket URL
+	reqMethod         string                    // request method
+	reqPathArgs       []string                  // position arguments for path template
+	reqQueryArgs      map[string]string         // request query parameters
+	reqBody           func() (io.Reader, error) // request body for ONE attempt, and nil means there is none
+	reqBodyReplayable bool                      // false for a caller-supplied stream, which nothing can rewind
+	reqBodyLength     int64                     // size of the original body in bytes
+	respStatusCode    int                       // fill after invoke
+	respBodyWriter    io.Writer                 // optional input argument
+	respBodyReader    io.ReadCloser             // fill after invoke
+	restWaitTime      time.Duration             // fill after invoke if error is temporary
+	context.Context                             // original context
 }
 
 type callFunc struct {
 	sdk sdk
 	cfg CallConfig
 	gen pathGenerator
+}
+
+func bodyFromBytes(body []byte) func() (io.Reader, error) {
+	return func() (io.Reader, error) { return bytes.NewReader(body), nil }
+}
+
+func bodyFromReader(r io.Reader) func() (io.Reader, error) {
+	return func() (io.Reader, error) { return r, nil }
 }
 
 func (c *callFunc) invokeWithRetries(cctx *callContext) error {
@@ -286,6 +295,11 @@ func (c *callFunc) invokeWithRetries(cctx *callContext) error {
 	}
 
 	maxRetries := max(c.sdk.maxRetries, 1)
+
+	if cctx.reqBody != nil && !cctx.reqBodyReplayable && maxRetries > 1 {
+		c.sdk.logger.Debugf("%s carries a one-shot request body; retries are disabled for it", c.cfg.Name)
+		maxRetries = 1
+	}
 
 	for attempt := range maxRetries {
 		if err = c.invokeRequest(cctx); err == nil {
@@ -455,62 +469,62 @@ func (c *callFunc) callReqQueryWithArgsRespWriter(ctx context.Context, args []st
 }
 
 func (c *callFunc) callReqBytesRespBytes(ctx context.Context, body []byte) ([]byte, error) {
-	cctx := callContext{Context: ctx, reqBodyReader: bytes.NewReader(body), reqBodyLength: int64(len(body))}
+	cctx := callContext{Context: ctx, reqBody: bodyFromBytes(body), reqBodyReplayable: true, reqBodyLength: int64(len(body))}
 	return c.invokeWithBytes(&cctx)
 }
 
 func (c *callFunc) callReqBytesRespReader(ctx context.Context, body []byte) (io.ReadCloser, error) {
-	cctx := callContext{Context: ctx, reqBodyReader: bytes.NewReader(body), reqBodyLength: int64(len(body))}
+	cctx := callContext{Context: ctx, reqBody: bodyFromBytes(body), reqBodyReplayable: true, reqBodyLength: int64(len(body))}
 	return c.invokeWithReader(&cctx)
 }
 
 func (c *callFunc) callReqBytesRespWriter(ctx context.Context, body []byte, w io.Writer) error {
-	cctx := callContext{Context: ctx, reqBodyReader: bytes.NewReader(body), reqBodyLength: int64(len(body)), respBodyWriter: w}
+	cctx := callContext{Context: ctx, reqBody: bodyFromBytes(body), reqBodyReplayable: true, reqBodyLength: int64(len(body)), respBodyWriter: w}
 	return c.invokeWithWriter(&cctx)
 }
 
 func (c *callFunc) callReqReaderRespBytes(ctx context.Context, r io.Reader, l int64) ([]byte, error) {
-	cctx := callContext{Context: ctx, reqBodyReader: r, reqBodyLength: l}
+	cctx := callContext{Context: ctx, reqBody: bodyFromReader(r), reqBodyLength: l}
 	return c.invokeWithBytes(&cctx)
 }
 
 func (c *callFunc) callReqReaderRespReader(ctx context.Context, r io.Reader, l int64) (io.ReadCloser, error) {
-	cctx := callContext{Context: ctx, reqBodyReader: r, reqBodyLength: l}
+	cctx := callContext{Context: ctx, reqBody: bodyFromReader(r), reqBodyLength: l}
 	return c.invokeWithReader(&cctx)
 }
 
 func (c *callFunc) callReqReaderRespWriter(ctx context.Context, r io.Reader, l int64, w io.Writer) error {
-	cctx := callContext{Context: ctx, reqBodyReader: r, reqBodyLength: l, respBodyWriter: w}
+	cctx := callContext{Context: ctx, reqBody: bodyFromReader(r), reqBodyLength: l, respBodyWriter: w}
 	return c.invokeWithWriter(&cctx)
 }
 
 func (c *callFunc) callReqBytesWithArgsRespBytes(ctx context.Context, args []string, body []byte) ([]byte, error) {
-	cctx := callContext{Context: ctx, reqPathArgs: args, reqBodyReader: bytes.NewReader(body), reqBodyLength: int64(len(body))}
+	cctx := callContext{Context: ctx, reqPathArgs: args, reqBody: bodyFromBytes(body), reqBodyReplayable: true, reqBodyLength: int64(len(body))}
 	return c.invokeWithBytes(&cctx)
 }
 
 func (c *callFunc) callReqBytesWithArgsRespReader(ctx context.Context, args []string, body []byte) (io.ReadCloser, error) {
-	cctx := callContext{Context: ctx, reqPathArgs: args, reqBodyReader: bytes.NewReader(body), reqBodyLength: int64(len(body))}
+	cctx := callContext{Context: ctx, reqPathArgs: args, reqBody: bodyFromBytes(body), reqBodyReplayable: true, reqBodyLength: int64(len(body))}
 	return c.invokeWithReader(&cctx)
 }
 
 func (c *callFunc) callReqBytesWithArgsRespWriter(ctx context.Context, args []string, body []byte, w io.Writer) error {
-	cctx := callContext{Context: ctx, reqPathArgs: args, reqBodyReader: bytes.NewReader(body), reqBodyLength: int64(len(body)), respBodyWriter: w}
+	cctx := callContext{Context: ctx, reqPathArgs: args, reqBody: bodyFromBytes(body), reqBodyReplayable: true, reqBodyLength: int64(len(body)), respBodyWriter: w}
 	return c.invokeWithWriter(&cctx)
 }
 
 func (c *callFunc) callReqReaderWithArgsRespBytes(ctx context.Context, args []string, r io.Reader, l int64) ([]byte, error) {
-	cctx := callContext{Context: ctx, reqPathArgs: args, reqBodyReader: r, reqBodyLength: l}
+	cctx := callContext{Context: ctx, reqPathArgs: args, reqBody: bodyFromReader(r), reqBodyLength: l}
 	return c.invokeWithBytes(&cctx)
 }
 
 func (c *callFunc) callReqReaderWithArgsRespReader(ctx context.Context, args []string, r io.Reader, l int64) (io.ReadCloser, error) {
-	cctx := callContext{Context: ctx, reqPathArgs: args, reqBodyReader: r, reqBodyLength: l}
+	cctx := callContext{Context: ctx, reqPathArgs: args, reqBody: bodyFromReader(r), reqBodyLength: l}
 	return c.invokeWithReader(&cctx)
 }
 
 func (c *callFunc) callReqReaderWithArgsRespWriter(ctx context.Context, args []string, r io.Reader, l int64, w io.Writer) error {
-	cctx := callContext{Context: ctx, reqPathArgs: args, reqBodyReader: r, reqBodyLength: l, respBodyWriter: w}
+	cctx := callContext{Context: ctx, reqPathArgs: args, reqBody: bodyFromReader(r), reqBodyLength: l, respBodyWriter: w}
 	return c.invokeWithWriter(&cctx)
 }
 

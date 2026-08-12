@@ -296,8 +296,13 @@ func (c *callFunc) invokeRequest(cctx *callContext) error {
 
 	// step 2: prepare encrypted request
 	var reqBody io.ReadCloser
-	if cctx.reqBodyReader != nil && cctx.reqBodyLength > 0 {
-		reqBody, err = EncryptStream(cctx.reqBodyReader, td.Key, td.IV)
+	if cctx.reqBody != nil && cctx.reqBodyLength > 0 {
+		plaintext, bodyErr := cctx.reqBody()
+		if bodyErr != nil {
+			return fmt.Errorf("failed to obtain request body: %w", bodyErr)
+		}
+
+		reqBody, err = EncryptStream(plaintext, td.Key, td.IV)
 		if err != nil {
 			return fmt.Errorf("failed to encrypt request body: %w", err)
 		}
@@ -320,7 +325,7 @@ func (c *callFunc) invokeRequest(cctx *callContext) error {
 	httpReq.Header.Set(headerXRequestID, td.RequestID.String())
 	httpReq.Header.Set(headerXRequestSign, signature)
 	httpReq.Header.Set("User-Agent", c.createUserAgentHeader())
-	if cctx.reqBodyReader != nil && cctx.reqBodyLength > 0 {
+	if cctx.reqBody != nil && cctx.reqBodyLength > 0 {
 		httpReq.Header.Set("Content-Type", "application/json")
 	}
 	if c.sdk.licenseKey != emptyLicenseKey && c.sdk.licenseFP != emptyLicenseFP {

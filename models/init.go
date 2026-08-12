@@ -9,8 +9,19 @@ import (
 )
 
 const (
-	semverRegexString   = `^(([0-9]+\.[0-9]+(\.[0-9]+)?)|latest)$`
-	semverexRegexString = `^(((v)?[0-9]+\.[0-9]+(\.[0-9]+)?(\.[0-9]+)?(-[a-zA-Z0-9]+)?)|latest)$`
+	// semverRegexString accepts a version core with an optional revision after a
+	// dash, and optional build metadata after a plus. The revision is present on
+	// builds cut from a branch, where the commit is not attached to a tag
+	// ("2.0.0-87ac00f"), and absent on release builds ("2.0.0") — both are valid
+	// and both must round-trip unchanged.
+	//
+	// A value that fits neither form (a branch name such as "develop", an empty
+	// string) must be normalised by the client before it is sent — "0.0.0" is
+	// the conventional stand-in for "some unknown build". The literal "latest"
+	// is accepted here because package lookups use it to mean "the newest
+	// published version"; it is meaningless as an installer version.
+	semverRegexString   = `^(([0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?)|latest)$`
+	semverexRegexString = `^(((v)?[0-9]+\.[0-9]+(\.[0-9]+)?(\.[0-9]+)?(-[a-zA-Z0-9-]+)?)|latest)$`
 )
 
 var (
@@ -65,6 +76,35 @@ func templateValidatorString(regexpString string) validator.Func {
 	}
 }
 
+// fileComponentValidator backs the `filecomp` tag: the field names a component
+// that is delivered as a FILE.
+//
+// It reads the static table in artefacts.go instead of an `oneof=` list. The
+// hand-written copies of that list — one here, three on the service side — had
+// already drifted into three different answers, and this one was the narrowest:
+// it refused downloads the service would have served.
+//
+// A nil pointer passes: presence is `required`'s business, not this tag's.
+func fileComponentValidator() validator.Func {
+	var cb func(reflect.Value) bool
+	cb = func(field reflect.Value) bool {
+		switch field.Kind() {
+		case reflect.String:
+			return ComponentType(field.String()).IsFileComponent()
+		case reflect.Pointer:
+			if field.IsNil() {
+				return true
+			}
+			return cb(field.Elem())
+		default:
+			return false
+		}
+	}
+	return func(fl validator.FieldLevel) bool {
+		return cb(fl.Field())
+	}
+}
+
 func deepValidator() validator.Func {
 	return func(fl validator.FieldLevel) bool {
 		if iv, ok := fl.Field().Interface().(IValid); ok {
@@ -98,6 +138,7 @@ func init() {
 	validate = validator.New()
 	_ = validate.RegisterValidation("semver", templateValidatorString(semverRegexString))
 	_ = validate.RegisterValidation("semverex", templateValidatorString(semverexRegexString))
+	_ = validate.RegisterValidation("filecomp", fileComponentValidator())
 	_ = validate.RegisterValidation("valid", deepValidator())
 
 	_, _ = reflect.ValueOf(ComponentType("")).Interface().(IValid)
@@ -110,10 +151,14 @@ func init() {
 	_, _ = reflect.ValueOf(SignatureValue("")).Interface().(IValid)
 
 	// update service models validation
+	_, _ = reflect.ValueOf(UpdateStrategy("")).Interface().(IValid)
 	_, _ = reflect.ValueOf(CheckUpdatesRequest{}).Interface().(IValid)
-	_, _ = reflect.ValueOf(ComponentInfo{}).Interface().(IValid)
+	_, _ = reflect.ValueOf(ImageComponentInfo{}).Interface().(IValid)
+	_, _ = reflect.ValueOf(FileComponentInfo{}).Interface().(IValid)
 	_, _ = reflect.ValueOf(CheckUpdatesResponse{}).Interface().(IValid)
 	_, _ = reflect.ValueOf(UpdateInfo{}).Interface().(IValid)
+	_, _ = reflect.ValueOf(ImageUpdate{}).Interface().(IValid)
+	_, _ = reflect.ValueOf(FileUpdate{}).Interface().(IValid)
 
 	// package service models validation
 	_, _ = reflect.ValueOf(PackageInfoRequest{}).Interface().(IValid)
@@ -130,4 +175,10 @@ func init() {
 	_, _ = reflect.ValueOf(SupportLogs{}).Interface().(IValid)
 	_, _ = reflect.ValueOf(SupportInvestigationRequest{}).Interface().(IValid)
 	_, _ = reflect.ValueOf(SupportInvestigationResponse{}).Interface().(IValid)
+	_, _ = reflect.ValueOf(MsgLogType("")).Interface().(IValid)
+	_, _ = reflect.ValueOf(SupportMsgLog{}).Interface().(IValid)
+	_, _ = reflect.ValueOf(SupportIssueMessagesResponse{}).Interface().(IValid)
+
+	// product.go — what a running product tells the service about itself
+	_, _ = reflect.ValueOf(ProductUpdateRequest{}).Interface().(IValid)
 }

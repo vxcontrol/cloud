@@ -34,7 +34,7 @@
 //	    {
 //	        Calls:  []any{&client.CheckUpdates},
 //	        Host:   "api.example.com",
-//	        Name:   "check_updates",
+//	        Name:   "updates_check",
 //	        Path:   "/api/v1/updates/check",
 //	        Method: sdk.CallMethodPOST,
 //	    },

@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
+	"net/http"
+	"os"
 	"runtime"
 	"time"
 
@@ -23,11 +26,11 @@ const (
 )
 
 type Client struct {
-	errorReport               sdk.CallReqBytesRespBytes
-	issueCreate               sdk.CallReqBytesRespBytes
-	issueInvestigate          sdk.CallReqBytesRespBytes
-	issueInvestigateWithSteam sdk.CallReqBytesRespReader
-	anonymizer                anonymizer.Anonymizer
+	errorReport                sdk.CallReqBytesRespBytes
+	issueCreate                sdk.CallReqBytesRespBytes
+	issueInvestigate           sdk.CallReqBytesRespBytes
+	issueInvestigateWithStream sdk.CallReqBytesRespReader
+	anonymizer                 anonymizer.Anonymizer
 }
 
 // ReportError sends an automated error report to support
@@ -57,9 +60,10 @@ func (c *Client) ReportError(
 		return fmt.Errorf("failed to report error: %w", err)
 	}
 
-	var response models.SupportErrorResponse
-	if err := json.Unmarshal(responseData, &response); err != nil {
-		return fmt.Errorf("failed to unmarshal error response: %w", err)
+	// Unwrap {"status":…,"data":…}: decoding the body directly always "succeeds"
+	// and hides a failure the server described in the envelope.
+	if _, err := models.ParseEnvelope[models.SupportErrorResponse](responseData); err != nil {
+		return err
 	}
 
 	return nil
@@ -98,9 +102,9 @@ func (c *Client) CreateSupportIssue(
 		return uuid.Nil, fmt.Errorf("failed to create issue: %w", err)
 	}
 
-	var response models.SupportIssueResponse
-	if err := json.Unmarshal(responseData, &response); err != nil {
-		return uuid.Nil, fmt.Errorf("failed to unmarshal issue response: %w", err)
+	response, err := models.ParseEnvelope[models.SupportIssueResponse](responseData)
+	if err != nil {
+		return uuid.Nil, err
 	}
 
 	return response.IssueID, nil
@@ -112,7 +116,7 @@ func (c *Client) InvestigateIssue(
 ) (string, error) {
 	investigationReq := models.SupportInvestigationRequest{
 		IssueID:   issueID,
-		UseSteam:  false,
+		UseStream: false,
 		UserInput: userInput,
 	}
 
@@ -126,21 +130,31 @@ func (c *Client) InvestigateIssue(
 		return "", fmt.Errorf("failed to investigate issue: %w", err)
 	}
 
-	var response models.SupportInvestigationResponse
-	if err := json.Unmarshal(responseData, &response); err != nil {
-		return "", fmt.Errorf("failed to unmarshal investigation response: %w", err)
+	response, err := models.ParseEnvelope[models.SupportInvestigationResponse](responseData)
+	if err != nil {
+		return "", err
 	}
 
 	return response.Answer, nil
 }
 
-// InvestigateIssueWithSteam starts AI-powered investigation of a support issue with steam response
-func (c *Client) InvestigateIssueWithSteam(
+// InvestigateIssueWithStream starts AI-powered investigation of a support issue
+// and renders the answer live, as it streams in.
+//
+// The stream is raw SSE, not the JSON envelope the non-streaming form uses:
+// `event: <name>` / `data: <json>` pairs, opening with `start` and ending with
+// `done`. Buffering the whole thing with io.ReadAll before printing anything —
+// the simplest thing to write — is also the one thing that defeats the point
+// of streaming: the caller would wait exactly as long as the non-stream call
+// and then see the full answer appear at once. streamRenderer (stream_render.go)
+// parses each frame as it arrives and prints it immediately, which is what
+// makes the assistant's answer visibly "type itself" in the terminal.
+func (c *Client) InvestigateIssueWithStream(
 	ctx context.Context, issueID uuid.UUID, userInput string,
 ) (string, error) {
 	investigationReq := models.SupportInvestigationRequest{
 		IssueID:   issueID,
-		UseSteam:  true,
+		UseStream: true,
 		UserInput: userInput,
 	}
 
@@ -149,20 +163,46 @@ func (c *Client) InvestigateIssueWithSteam(
 		return "", fmt.Errorf("failed to marshal investigation request: %w", err)
 	}
 
-	stream, err := c.issueInvestigateWithSteam(ctx, data)
+	stream, err := c.issueInvestigateWithStream(ctx, data)
 	if err != nil {
 		return "", fmt.Errorf("failed to investigate issue: %w", err)
 	}
+	defer stream.Close()
 
-	response, err := io.ReadAll(stream)
-	if err != nil {
-		return "", fmt.Errorf("failed to read investigation response: %w", err)
+	renderer := &streamRenderer{}
+	if err := readSSEStream(stream, renderer.handle); err != nil {
+		return "", fmt.Errorf("failed to read investigation stream: %w", err)
 	}
 
-	return string(response), nil
+	return renderer.answer.String(), nil
 }
 
-func NewClient(serverHost, licenseKey string) (*Client, error) {
+// transportWithCA returns the default transport, optionally trusting an extra
+// CA bundle. This is what a private deployment behind a corporate CA needs; it
+// is NOT a way to skip verification, and there is deliberately no flag for that.
+func transportWithCA(caPath string) (*http.Transport, error) {
+	transport := sdk.DefaultTransport()
+	if caPath == "" {
+		return transport, nil
+	}
+
+	pem, err := os.ReadFile(caPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CA bundle: %w", err)
+	}
+	roots, err := x509.SystemCertPool()
+	if err != nil || roots == nil {
+		roots = x509.NewCertPool()
+	}
+	if !roots.AppendCertsFromPEM(pem) {
+		return nil, fmt.Errorf("no certificates found in %s", caPath)
+	}
+	transport.TLSClientConfig = &tls.Config{RootCAs: roots}
+
+	return transport, nil
+}
+
+func NewClient(serverHost, licenseKey, caPath string) (*Client, error) {
 	// initialize anonymizer for automatic PII/secrets protection
 	// automatically masks credentials, emails, IPs, database URLs, API keys, etc.
 	anon, err := anonymizer.NewAnonymizer(nil)
@@ -178,29 +218,34 @@ func NewClient(serverHost, licenseKey string) (*Client, error) {
 		{
 			Calls:  []any{&client.errorReport},
 			Host:   serverHost,
-			Name:   "error_report",
-			Path:   "/api/v1/errors/report",
+			Name:   "errors_report",
+			Path:   "/api/v1/proxy/errors/report",
 			Method: sdk.CallMethodPOST,
 		},
 		{
 			Calls:  []any{&client.issueCreate},
 			Host:   serverHost,
-			Name:   "issue_create",
-			Path:   "/api/v1/issues/create",
+			Name:   "support_issues",
+			Path:   "/api/v1/proxy/support/issues",
 			Method: sdk.CallMethodPOST,
 		},
 		{
-			Calls:  []any{&client.issueInvestigate, &client.issueInvestigateWithSteam},
+			Calls:  []any{&client.issueInvestigate, &client.issueInvestigateWithStream},
 			Host:   serverHost,
-			Name:   "issue_investigate",
-			Path:   "/api/v1/issues/investigate",
+			Name:   "support_investigate",
+			Path:   "/api/v1/proxy/support/investigate",
 			Method: sdk.CallMethodPOST,
 		},
 	}
 
+	transport, err := transportWithCA(caPath)
+	if err != nil {
+		return nil, err
+	}
+
 	var buildOptions []sdk.Option
 	buildOptions = append(buildOptions,
-		sdk.WithTransport(sdk.DefaultTransport()),
+		sdk.WithTransport(transport),
 		sdk.WithInstallationID(system.GetInstallationID()),
 		sdk.WithClient("Report-Errors-Example", "1.0.0"),
 		sdk.WithLogger(sdk.WrapLogrus(logrus.StandardLogger())),
@@ -267,7 +312,13 @@ func main() {
 	var (
 		serverHost = flag.String("host", "support.pentagi.com", "Cloud server host")
 		licenseKey = flag.String("license", "", "License key (optional)")
-		example    = flag.String("example", "all", "Example to run: error, issue, investigate, steam, all")
+		example    = flag.String("example", "all", "Example to run: error, issue, investigate, stream, all")
+		// The "investigate" and "stream" examples are normally run standalone,
+		// against an issue created by a previous "-example issue" invocation:
+		// that command prints the issue_id you pass here. Leave empty to have
+		// the example create a fresh issue for a self-contained demo run.
+		issueID = flag.String("issue-id", "", "Existing issue ID to continue (from a prior -example issue run)")
+		caPath  = flag.String("ca", "", "Extra CA bundle to trust (for private deployments)")
 	)
 	flag.Parse()
 
@@ -279,7 +330,7 @@ func main() {
 		logrus.Printf("license: configured")
 	}
 
-	client, err := NewClient(*serverHost, *licenseKey)
+	client, err := NewClient(*serverHost, *licenseKey, *caPath)
 	if err != nil {
 		logrus.Fatalf("failed to create client: %v", err)
 	}
@@ -292,16 +343,31 @@ func main() {
 	case "issue":
 		runIssueCreation(ctx, client)
 	case "investigate":
-		runInvestigation(ctx, client)
-	case "steam":
-		runSteamInvestigation(ctx, client)
+		runInvestigation(ctx, client, parseIssueID(*issueID))
+	case "stream":
+		runStreamInvestigation(ctx, client, parseIssueID(*issueID))
 	case "all":
 		runAllExamples(ctx, client)
 	default:
-		logrus.Fatalf("unknown example: %s. Use: error, issue, investigate, steam, all", *example)
+		logrus.Fatalf("unknown example: %s. Use: error, issue, investigate, stream, all", *example)
 	}
 
 	logrus.Println("support client demonstration completed")
+}
+
+// parseIssueID returns uuid.Nil for an empty flag (meaning "create a new
+// issue"), so callers can use it directly without a separate presence check.
+func parseIssueID(raw string) uuid.UUID {
+	if raw == "" {
+		return uuid.Nil
+	}
+
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		logrus.Fatalf("invalid -issue-id %q: %v", raw, err)
+	}
+
+	return id
 }
 
 func runErrorReporting(ctx context.Context, client *Client) {
@@ -317,7 +383,7 @@ func runErrorReporting(ctx context.Context, client *Client) {
 	logrus.Println("error reported successfully with data anonymization")
 }
 
-func runIssueCreation(ctx context.Context, client *Client) {
+func runIssueCreation(ctx context.Context, client *Client) uuid.UUID {
 	logrus.Println("=== Support Issue Creation ===")
 
 	issueID, err := client.CreateSupportIssue(
@@ -325,27 +391,52 @@ func runIssueCreation(ctx context.Context, client *Client) {
 	)
 	if err != nil {
 		logrus.Errorf("failed to create support issue: %v", err)
-		return
+		return uuid.Nil
 	}
 
-	logrus.WithField("issue_id", issueID).Println("support issue created with data anonymization")
+	// This ID is what "-example investigate -issue-id <id>" and
+	// "-example stream -issue-id <id>" expect: it is the only handle the
+	// client has for continuing the conversation the server keeps per issue.
+	logrus.WithField("issue_id", issueID).Println(
+		"support issue created with data anonymization; " +
+			"pass it to -issue-id to continue investigating it",
+	)
+
+	return issueID
 }
 
-func runInvestigation(ctx context.Context, client *Client) {
-	logrus.Println("=== AI Investigation ===")
+// resolveIssueID returns issueID unchanged if it was supplied (a
+// previously-created issue is being continued), otherwise it creates a fresh
+// one so each investigation example also works as a self-contained demo.
+func resolveIssueID(ctx context.Context, client *Client, issueID uuid.UUID) (uuid.UUID, error) {
+	if issueID != uuid.Nil {
+		logrus.WithField("issue_id", issueID).Println("using existing issue")
+		return issueID, nil
+	}
 
-	// first create an issue
 	issueID, err := client.CreateSupportIssue(
 		ctx, models.ComponentTypePentagi, getIssueDetails(), getComponentsLogs(),
 	)
 	if err != nil {
-		logrus.Errorf("failed to create support issue: %v", err)
-		return
+		return uuid.Nil, fmt.Errorf("failed to create support issue: %w", err)
 	}
 
 	logrus.WithField("issue_id", issueID).Println("created issue")
 
-	// then investigate
+	return issueID, nil
+}
+
+func runInvestigation(ctx context.Context, client *Client, issueID uuid.UUID) {
+	logrus.Println("=== AI Investigation ===")
+
+	issueID, err := resolveIssueID(ctx, client, issueID)
+	if err != nil {
+		logrus.Error(err)
+		return
+	}
+
+	// The call below blocks until the server has analyzed the issue and
+	// produced an answer — there is no separate polling step to wait for it.
 	userInput := "The scanner works fine with other CVE patterns but consistently fails on these two specific ones. Could this be related to pattern complexity or memory constraints?"
 
 	answer, err := client.InvestigateIssue(ctx, issueID, userInput)
@@ -356,7 +447,7 @@ func runInvestigation(ctx context.Context, client *Client) {
 
 	logrus.WithField("answer", answer).Println("AI investigation result")
 
-	// follow-up investigation
+	// follow-up investigation, same issue_id continues the conversation
 	followUpInput := "Based on your analysis, what specific configuration changes would you recommend to resolve the memory constraint issue?"
 
 	followUpAnswer, err := client.InvestigateIssue(ctx, issueID, followUpInput)
@@ -371,38 +462,48 @@ func runInvestigation(ctx context.Context, client *Client) {
 	}).Println("follow-up recommendations")
 }
 
-func runSteamInvestigation(ctx context.Context, client *Client) {
-	logrus.Println("=== AI Steam Investigation ===")
+func runStreamInvestigation(ctx context.Context, client *Client, issueID uuid.UUID) {
+	logrus.Println("=== AI Streamed Investigation ===")
 
-	// first create an issue
-	issueID, err := client.CreateSupportIssue(
-		ctx, models.ComponentTypePentagi, getIssueDetails(), getComponentsLogs(),
-	)
+	issueID, err := resolveIssueID(ctx, client, issueID)
 	if err != nil {
-		logrus.Errorf("failed to create support issue: %v", err)
+		logrus.Error(err)
 		return
 	}
 
-	logrus.WithField("issue_id", issueID).Println("created issue")
-
-	// steam investigation
+	// Same blocking wait as the non-stream call, except the answer arrives
+	// incrementally as SSE events instead of as one JSON response.
 	userInput := "Please provide a detailed analysis of the scanner performance issues and step-by-step troubleshooting guide."
 
-	steamAnswer, err := client.InvestigateIssueWithSteam(ctx, issueID, userInput)
-	if err != nil {
-		logrus.Errorf("failed to steam investigate issue: %v", err)
+	// The renderer prints the answer live, token by token, as it streams in —
+	// see stream_render.go. The returned string is the same text, assembled,
+	// for callers that need it programmatically rather than on a terminal.
+	if _, err := client.InvestigateIssueWithStream(ctx, issueID, userInput); err != nil {
+		logrus.Errorf("failed to stream investigate issue: %v", err)
 		return
 	}
 
-	logrus.WithFields(logrus.Fields{
-		"issue_id": issueID,
-		"answer":   steamAnswer,
-	}).Println("steam investigation result")
+	logrus.WithField("issue_id", issueID).Println("streamed investigation complete")
 }
 
+// runAllExamples walks the full, real-world flow end to end:
+//  1. report a client-side error — logged server-side, no reply expected;
+//  2. create one support issue and get its issue_id back;
+//  3. investigate that same issue (non-stream, then a follow-up), waiting
+//     for the server to analyze it and answer;
+//  4. continue the very same issue over the streamed endpoint.
+//
+// Steps 3 and 4 reuse one issue_id on purpose, to demonstrate that it is the
+// identifier client code must keep in order to hold a multi-turn
+// conversation with the server about one issue.
 func runAllExamples(ctx context.Context, client *Client) {
 	runErrorReporting(ctx, client)
-	runIssueCreation(ctx, client)
-	runInvestigation(ctx, client)
-	runSteamInvestigation(ctx, client)
+
+	issueID := runIssueCreation(ctx, client)
+	if issueID == uuid.Nil {
+		return
+	}
+
+	runInvestigation(ctx, client, issueID)
+	runStreamInvestigation(ctx, client, issueID)
 }

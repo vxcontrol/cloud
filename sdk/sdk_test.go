@@ -1,13 +1,20 @@
 package sdk
 
 import (
+	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 var testLicenseKey = [10]byte{5, 214, 101, 133, 220, 47, 241, 139, 53, 124}
@@ -85,6 +92,143 @@ func TestBuildValidation(t *testing.T) {
 		if (err != nil) != tt.wantErr {
 			t.Errorf("Build() error = %v, wantErr %v", err, tt.wantErr)
 		}
+	}
+}
+
+func TestARetriedRequestCarriesItsBodyAgain(t *testing.T) {
+	mockSrv := newMockServer()
+
+	var received []int
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, defaultTicketPath) {
+			mockSrv.handler(w, r)
+			return
+		}
+
+		// The body on the wire is ciphertext, so its length is what is compared rather
+		// than its content: an empty plaintext produces a conspicuously shorter frame, and
+		// no decryption is needed to tell the two apart.
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("reading request body: %v", err)
+		}
+		received = append(received, len(body))
+
+		if len(received) == 1 {
+			// Temporary by the SDK's own classification, so the call is retried.
+			mockSrv.sendError(w, ErrServerInternal)
+			return
+		}
+
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		mockSrv.handler(w, r)
+	}))
+	defer server.Close()
+
+	testTicket, exists := mockSrv.ticketsByName["valid_success"]
+	if !exists {
+		t.Fatal("valid_success ticket not found in test data")
+	}
+	installationID, err := uuid.Parse(testTicket.InstallationID)
+	if err != nil {
+		t.Fatalf("invalid InstallationID: %v", err)
+	}
+
+	var call CallReqBytesRespBytes
+	transport := DefaultTransport()
+	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+
+	err = Build([]CallConfig{{
+		Calls:  []any{&call},
+		Host:   strings.TrimPrefix(server.URL, "https://"),
+		Name:   "valid_success",
+		Path:   "/api/v1/call/body_retry",
+		Method: CallMethodPOST,
+	}},
+		withServerPublicKey(mockSrv.getPublicKey()),
+		WithInstallationID([16]byte(installationID)),
+		WithPowTimeout(2*time.Second),
+		WithMaxRetries(2),
+		WithLicenseKey(encodeLicenseKey(testLicenseKey)),
+		WithTransport(transport))
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	payload := []byte(`{"installer_version":"2.1.0","components":[{"component":"pentagi"}]}`)
+	if _, err := call(ctx, payload); err != nil {
+		t.Fatalf("the retried call failed: %v", err)
+	}
+
+	if len(received) != 2 {
+		t.Fatalf("expected one failed attempt and one retry, got %d attempts", len(received))
+	}
+	if received[0] == 0 {
+		t.Fatal("fixture broken: the first attempt carried no body at all")
+	}
+	if received[1] != received[0] {
+		t.Errorf("the retry sent %d bytes where the first attempt sent %d;"+
+			" a body handed over once is at EOF by the second attempt, and the request goes"+
+			" out empty under a signature promising the original length",
+			received[1], received[0])
+	}
+}
+
+func TestAOneShotBodyIsNotRetried(t *testing.T) {
+	mockSrv := newMockServer()
+
+	attempts := 0
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, defaultTicketPath) {
+			mockSrv.handler(w, r)
+			return
+		}
+		attempts++
+		mockSrv.sendError(w, ErrServerInternal)
+	}))
+	defer server.Close()
+
+	testTicket := mockSrv.ticketsByName["valid_success"]
+	installationID, err := uuid.Parse(testTicket.InstallationID)
+	if err != nil {
+		t.Fatalf("invalid InstallationID: %v", err)
+	}
+
+	var call CallReqReaderRespBytes
+	transport := DefaultTransport()
+	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+
+	err = Build([]CallConfig{{
+		Calls:  []any{&call},
+		Host:   strings.TrimPrefix(server.URL, "https://"),
+		Name:   "valid_success",
+		Path:   "/api/v1/call/body_retry",
+		Method: CallMethodPOST,
+	}},
+		withServerPublicKey(mockSrv.getPublicKey()),
+		WithInstallationID([16]byte(installationID)),
+		WithPowTimeout(2*time.Second),
+		WithMaxRetries(3),
+		WithLicenseKey(encodeLicenseKey(testLicenseKey)),
+		WithTransport(transport))
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	payload := []byte(`{"stream":"payload"}`)
+	if _, err := call(ctx, bytes.NewReader(payload), int64(len(payload))); err == nil {
+		t.Fatal("fixture broken: the server always fails, so the call must fail")
+	}
+
+	if attempts != 1 {
+		t.Errorf("a one-shot body was sent %d times; every attempt after the first carries"+
+			" nothing and cannot succeed", attempts)
 	}
 }
 
