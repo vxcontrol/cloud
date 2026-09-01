@@ -5,10 +5,10 @@ package models
 // Version accepts the literal `latest`, which resolves to the highest published
 // version for the requested (component, os, arch).
 //
-// Only components delivered as files have a package at all, exactly as for
-// DownloadPackageRequest below. Validating one and not the other would let the
-// SDK send a metadata request the service refuses, while refusing the download
-// of the very same artefact locally.
+// Only components a file is published for can be asked about — ArtifactKindFile
+// and ArtifactKindFileImage — exactly as for DownloadPackageRequest below.
+// Validating one and not the other would let the SDK send a metadata request the
+// service refuses, while refusing the download of the very same artefact locally.
 type PackageInfoRequest struct {
 	Component ComponentType `json:"component" validate:"required,valid,filecomp"`
 	Version   string        `json:"version" validate:"required,semver"`
@@ -51,11 +51,15 @@ func (p PackageInfoResponse) Valid() error {
 
 // DownloadPackageRequest represents public API request to download package.
 //
-// Only components distributed as downloadable files can be requested here; an
-// image component has no package to download. Which components those are is the
-// static table in artefacts.go, not a list written out here: the hand-written
-// copies had already drifted into three different answers across the two sides,
-// and the narrowest of them refused two components the service will serve.
+// Only components a file is published for can be requested here; an image-only
+// component has no package to download. Which components those are is the static
+// table in artefacts.go, not a list written out here: the hand-written copies had
+// already drifted into three different answers across the two sides, and the
+// narrowest of them refused two components the service will serve.
+//
+// FileImage belongs: pentagi is pulled as a container and also ships an
+// executable a running product can replace itself with. Asking only "is this an
+// image?" here refused that download while the service was willing to serve it.
 type DownloadPackageRequest struct {
 	Component ComponentType `json:"component" validate:"required,valid,filecomp"`
 	Version   string        `json:"version" validate:"required,semver"`

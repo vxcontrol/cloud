@@ -33,8 +33,9 @@ func TestEveryComponentHasAnArtifactKind(t *testing.T) {
 	}
 }
 
-// TestTheFileVocabularyIsExactlyTheDeliveredFiles pins the split itself, as a
-// literal, on both sides of the contract.
+// TestTheFileVocabularyIsExactlyTheDeliveredFiles pins which components have a
+// published file — the file-only ones plus FileImage — as a literal on both
+// sides of the contract.
 func TestTheFileVocabularyIsExactlyTheDeliveredFiles(t *testing.T) {
 	want := []ComponentType{
 		ComponentTypeInstaller,
@@ -42,6 +43,7 @@ func TestTheFileVocabularyIsExactlyTheDeliveredFiles(t *testing.T) {
 		ComponentTypeJaegerClickhouse,
 		ComponentTypeEngineRegistry,
 		ComponentTypeEngineScenario,
+		ComponentTypePentagi,
 	}
 	got := map[ComponentType]bool{}
 	for _, ct := range FileComponentTypes {
@@ -56,8 +58,18 @@ func TestTheFileVocabularyIsExactlyTheDeliveredFiles(t *testing.T) {
 	for ct := range got {
 		t.Errorf("%s is delivered as a file but is not in the pinned list", ct)
 	}
-	if n := len(FileComponentTypes) + len(ImageComponentTypes); n != len(AllComponentTypes) {
-		t.Errorf("the two kinds cover %d components, the vocabulary has %d", n, len(AllComponentTypes))
+	// FileImage sits in both lists, so the two lengths sum to more than the
+	// vocabulary. Every component must still appear in at least one.
+	seen := map[ComponentType]struct{}{}
+	for _, ct := range FileComponentTypes {
+		seen[ct] = struct{}{}
+	}
+	for _, ct := range ImageComponentTypes {
+		seen[ct] = struct{}{}
+	}
+	if len(seen) != len(AllComponentTypes) {
+		t.Errorf("the two kinds cover %d components, the vocabulary has %d",
+			len(seen), len(AllComponentTypes))
 	}
 }
 
@@ -65,13 +77,15 @@ func TestTheFileVocabularyIsExactlyTheDeliveredFiles(t *testing.T) {
 // vocabulary — the shape that catches an omission rather than one that confirms
 // the members already present.
 //
-// The list this replaced named two of the five, so an SDK asking for
-// jaeger-clickhouse, engine-registry or engine-scenario refused locally before
-// the request was ever sent.
+// The list this replaced named two of the five file-only components, so an SDK
+// asking for jaeger-clickhouse, engine-registry or engine-scenario refused
+// locally before the request was ever sent. Asking only the image/file delivery
+// question then cost one more: pentagi is FileImage, and treating that as "not
+// a file" refused the executable a running product replaces itself with.
 //
-// BOTH package requests are swept. Gating one and not the other is a real
-// state this test exists to forbid: the SDK would send a metadata request the
-// service refuses, while refusing the download of that same artefact itself.
+// BOTH package requests are swept. Gating one and not the other is a real state
+// this test exists to forbid: the SDK would send a metadata request the service
+// refuses, while refusing the download of that same artefact itself.
 func TestOnlyAFileHasAPackage(t *testing.T) {
 	for _, ct := range AllComponentTypes {
 		requests := map[string]IValid{
@@ -90,17 +104,68 @@ func TestOnlyAFileHasAPackage(t *testing.T) {
 		}
 		for name, request := range requests {
 			err := request.Valid()
-			switch ct.ArtifactKind() {
-			case ArtifactKindFile:
-				if err != nil {
-					t.Errorf("%s is delivered as a file but %s rejects it: %v", ct, name, err)
-				}
-			case ArtifactKindImage:
-				if err == nil {
-					t.Errorf("%s is an image and has no package, but %s accepted it", ct, name)
-				}
+			if ct.IsFileComponent() && err != nil {
+				t.Errorf("%s has a published file but %s rejects it: %v", ct, name, err)
+			}
+			if !ct.IsFileComponent() && err == nil {
+				t.Errorf("%s has no package, but %s accepted it", ct, name)
 			}
 		}
+	}
+}
+
+// TestPentagiIsFileImage pins the one component that is both an image an
+// installer pulls and a file a running product downloads.
+//
+// It must stay in BOTH update-check lists: under `images` the service resolves
+// it against its registry reference, under `files` against the published
+// executable. Moving it to ArtifactKindFile takes it out of every installer's
+// image list; leaving it as ArtifactKindImage refuses the file half. FileImage
+// is both answers in the table, not a kind plus a side set.
+func TestPentagiIsFileImage(t *testing.T) {
+	if got := ComponentTypePentagi.ArtifactKind(); got != ArtifactKindFileImage {
+		t.Errorf("pentagi must be file-image, got %s", got)
+	}
+	if !ComponentTypePentagi.IsImageComponent() {
+		t.Error("pentagi must stay an image: an update check resolves it as one")
+	}
+	if !ComponentTypePentagi.IsFileComponent() {
+		t.Error("pentagi ships an executable a running product can replace itself with")
+	}
+
+	base := CheckUpdatesRequest{
+		InstallerVersion: "1.0.0",
+		InstallerOS:      OSTypeLinux,
+		InstallerArch:    ArchTypeAMD64,
+		Strategy:         UpdateStrategyPreview,
+	}
+	asFile := base
+	asFile.Files = []FileComponentInfo{{
+		Component: ComponentTypePentagi,
+		Status:    ComponentStatusRunning,
+		OS:        OSTypeLinux,
+		Arch:      ArchTypeAMD64,
+	}}
+	if err := asFile.Valid(); err != nil {
+		t.Errorf("pentagi reported under `files` must validate: %v", err)
+	}
+	asImage := base
+	asImage.Images = []ImageComponentInfo{{
+		Component:  ComponentTypePentagi,
+		Status:     ComponentStatusRunning,
+		OS:         OSTypeLinux,
+		Arch:       ArchTypeAMD64,
+		Repository: "vxcontrol/pentagi",
+		Tag:        "latest",
+	}}
+	if err := asImage.Valid(); err != nil {
+		t.Errorf("pentagi reported under `images` must validate: %v", err)
+	}
+	both := base
+	both.Images = asImage.Images
+	both.Files = asFile.Files
+	if err := both.Valid(); err != nil {
+		t.Errorf("pentagi reported under both lists must validate: %v", err)
 	}
 }
 
@@ -126,7 +191,7 @@ func TestAComponentReportedUnderTheWrongKindIsRejected(t *testing.T) {
 	t.Run("an image reported under files", func(t *testing.T) {
 		request := base()
 		request.Files = []FileComponentInfo{{
-			Component: ComponentTypePentagi,
+			Component: ComponentTypeScraper,
 			Status:    ComponentStatusRunning,
 			OS:        OSTypeLinux,
 			Arch:      ArchTypeAMD64,
@@ -134,9 +199,9 @@ func TestAComponentReportedUnderTheWrongKindIsRejected(t *testing.T) {
 		}}
 		err := request.Valid()
 		if err == nil {
-			t.Fatal("pentagi is an image; reporting it as a file must not validate")
+			t.Fatal("scraper is an image; reporting it as a file must not validate")
 		}
-		if !strings.Contains(err.Error(), "pentagi") {
+		if !strings.Contains(err.Error(), "scraper") {
 			t.Errorf("the error does not name the component: %v", err)
 		}
 	})

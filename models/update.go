@@ -62,8 +62,8 @@ type CheckUpdatesRequest struct {
 	// filled none of them (a component the client knows about but has not
 	// installed) matched no branch of the guess and fell out of the answer with
 	// no error and no trace.
-	Images []ImageComponentInfo `json:"images" validate:"max=30,dive,valid"`
-	Files  []FileComponentInfo  `json:"files" validate:"max=30,dive,valid"`
+	Images []ImageComponentInfo `json:"images" validate:"max=60,dive,valid"`
+	Files  []FileComponentInfo  `json:"files" validate:"max=60,dive,valid"`
 
 	// Stacks is what the installation says about each product stack it knows of.
 	// Nothing in the answer depends on it — it is reported for its own sake.
@@ -90,8 +90,17 @@ type CheckUpdatesRequest struct {
 // MaxReportedComponents bounds how many artefacts one request may report.
 //
 // It counts the two lists TOGETHER. Bounding each separately would let a caller
-// send twice the limit by splitting the payload, which is not a limit at all.
-const MaxReportedComponents = 40
+// send twice the limit by splitting the payload, which is not a limit at all —
+// which is also why the per-list tags below are the same number rather than half
+// of it: a lopsided report is not an abusive one, and a per-list bound under this
+// one would refuse a legal request before this rule ever ran.
+//
+// Sixty rather than the number that fits: a full deployment reports 28 today, and
+// the client that assembles the list TRUNCATES at this value rather than being
+// refused — so a ceiling close to the inventory silently drops components instead
+// of failing loudly. The cost behind it is one query per artefact on the service
+// side, which is why it is a bound at all.
+const MaxReportedComponents = 60
 
 func (p CheckUpdatesRequest) Valid() error {
 	if err := validate.Struct(p); err != nil {
@@ -107,16 +116,19 @@ func (p CheckUpdatesRequest) Valid() error {
 	// nothing in the per-element rules notices, because the two kinds differ not
 	// by which fields are filled but by which artefacts answer them. Only the
 	// static table knows, so it is consulted here.
+	//
+	// FileImage is in both lists: the image an installer pulls, and the file a
+	// running product replaces itself with, are two artefacts of one component.
 	for i, image := range p.Images {
-		if kind := image.Component.ArtifactKind(); kind != ArtifactKindImage {
+		if !image.Component.IsImageComponent() {
 			return fmt.Errorf("images[%d]: %s is delivered as a %s, report it under files",
-				i, image.Component, kind)
+				i, image.Component, image.Component.ArtifactKind())
 		}
 	}
 	for i, file := range p.Files {
-		if kind := file.Component.ArtifactKind(); kind != ArtifactKindFile {
-			return fmt.Errorf("files[%d]: %s is delivered as an %s, report it under images",
-				i, file.Component, kind)
+		if !file.Component.IsFileComponent() {
+			return fmt.Errorf("files[%d]: %s is delivered as a %s, report it under images",
+				i, file.Component, file.Component.ArtifactKind())
 		}
 	}
 	return nil

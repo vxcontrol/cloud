@@ -669,7 +669,11 @@ func TestRequestValidationMatchesTheServerRules(t *testing.T) {
 		}
 	})
 
-	t.Run("at most 30 artefacts across BOTH lists", func(t *testing.T) {
+	// The bound is read from the constant, never written out here. This subtest
+	// carried a literal 30 while the constant said 40, so it passed while ten
+	// artefacts more than it describes were being accepted — a test that agrees
+	// with itself instead of with the rule.
+	t.Run("at most MaxReportedComponents artefacts across BOTH lists", func(t *testing.T) {
 		image := ImageComponentInfo{
 			Component:  ComponentTypePentagi,
 			Status:     ComponentStatusRunning,
@@ -686,29 +690,30 @@ func TestRequestValidationMatchesTheServerRules(t *testing.T) {
 		}
 
 		request := base()
-		for i := 0; i < 30; i++ {
+		for i := 0; i < MaxReportedComponents; i++ {
 			request.Images = append(request.Images, image)
 		}
 		if err := request.Valid(); err != nil {
-			t.Errorf("30 artefacts must be accepted: %v", err)
+			t.Errorf("%d artefacts must be accepted: %v", MaxReportedComponents, err)
 		}
 		request.Images = append(request.Images, image)
 		if err := request.Valid(); err == nil {
-			t.Error("31 artefacts must be rejected")
+			t.Errorf("%d artefacts must be rejected", MaxReportedComponents+1)
 		}
 
 		// The limit counts the two lists TOGETHER. Bounding each separately
 		// would let a caller send twice the limit by splitting the payload,
 		// which is not a limit at all.
 		split := base()
-		for range 30 {
+		for range MaxReportedComponents {
 			split.Images = append(split.Images, image)
 		}
-		for range 20 {
+		for range MaxReportedComponents {
 			split.Files = append(split.Files, file)
 		}
 		if err := split.Valid(); err == nil {
-			t.Error("30 images plus 20 files is 50 artefacts and must be rejected")
+			t.Errorf("%d images plus %d files is twice the limit and must be rejected",
+				MaxReportedComponents, MaxReportedComponents)
 		}
 	})
 }
@@ -742,9 +747,9 @@ func TestEveryComponentBelongsToAStack(t *testing.T) {
 }
 
 // GoldenProductUpdateRequest is the exact wire form this package produces when a
-// running product tells the update service what it currently is. The server side
-// keeps a copy of this literal and asserts its own model accepts it, so a field
-// renamed on either side turns one of the two tests red instead of silently
+// running product asks the update service what it should be running. The server
+// side keeps a copy of this literal and asserts its own model accepts it, so a
+// field renamed on either side turns one of the two tests red instead of silently
 // producing requests nobody can parse.
 //
 // `info` is deliberately a shape this package does not model. It is versioned by
@@ -757,6 +762,7 @@ const GoldenProductUpdateRequest = `{
   "os": "linux",
   "arch": "amd64",
   "binary_hash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "strategy": "preview",
   "info": {
     "schema": 1,
     "version": "0.9.3",
@@ -765,6 +771,139 @@ const GoldenProductUpdateRequest = `{
     "providers": [{"type": "openai", "count": 2}]
   }
 }`
+
+// GoldenProductUpdateResponse is the exact wire form the service answers with.
+// The server keeps a copy of this literal too — this half of the contract is the
+// one that only started to exist when the endpoint stopped being write-only, and
+// a response nobody pinned is a response the service is free to reshape.
+//
+// `update` is an ordinary UpdateInfo, deliberately: the client that reads it is
+// the same one that reads a check-updates answer, and a second shape for the same
+// question would be a second thing to keep in step.
+const GoldenProductUpdateResponse = `{
+  "update": {
+    "stack": "pentagi",
+    "has_update": true,
+    "latest_version": "2.4.0",
+    "images": [
+      {
+        "component": "pentagi",
+        "os": "linux",
+        "arch": "amd64",
+        "action": "upgrade",
+        "pinned": false,
+        "release_version": "2.4.0",
+        "repository": "vxcontrol/pentagi",
+        "tag": "2.4.0",
+        "pull_reference": "vxcontrol/pentagi:latest",
+        "image_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+        "config_hash": "2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    ],
+    "resolution": "channel"
+  },
+  "version": "2.4.0",
+  "binary": {
+    "size": 50331648,
+    "hash": "3333333333333333333333333333333333333333333333333333333333333333",
+    "version": "2.4.0",
+    "os": "linux",
+    "arch": "amd64",
+    "signature": "MEUCIQ=="
+  },
+  "identified": true
+}`
+
+func TestProductUpdateResponseMatchesTheGoldenWireForm(t *testing.T) {
+	var answer ProductUpdateResponse
+	decoder := json.NewDecoder(strings.NewReader(GoldenProductUpdateResponse))
+	// A field this package does not know is a contract break: the service
+	// believed it was telling the client something.
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&answer); err != nil {
+		t.Fatalf("the golden response must decode into the model: %v", err)
+	}
+	if err := answer.Valid(); err != nil {
+		t.Fatalf("the golden response must pass validation: %v", err)
+	}
+
+	if answer.Update == nil {
+		t.Fatal("the stack answer must decode")
+	}
+	if answer.Update.Stack != ProductStackPentagi || !answer.Update.HasUpdate {
+		t.Errorf("the stack answer was lost: %+v", answer.Update)
+	}
+	if len(answer.Update.Images) != 1 || answer.Update.Images[0].Action != ComponentActionUpgrade {
+		t.Errorf("the offered image was lost: %+v", answer.Update.Images)
+	}
+	// The reference to pull is not repository:tag and must not be reconstructed
+	// from them: under a moving channel it names the tag the artefact was FOUND
+	// under, while `tag` names the artefact itself.
+	if answer.Update.Images[0].PullReference != "vxcontrol/pentagi:latest" {
+		t.Errorf("the pull reference was lost: %q", answer.Update.Images[0].PullReference)
+	}
+	if answer.Version == nil || *answer.Version != "2.4.0" {
+		t.Errorf("the offered product version was lost: %v", answer.Version)
+	}
+	if answer.Binary == nil || answer.Binary.Version != "2.4.0" {
+		t.Errorf("the executable of that version was lost: %+v", answer.Binary)
+	}
+	// The two halves describe ONE build. A client that downloaded the binary of a
+	// version other than the image it was offered would be running something
+	// nobody answered with.
+	if answer.Binary.Version != *answer.Version {
+		t.Errorf("the executable (%s) and the offered version (%s) disagree",
+			answer.Binary.Version, *answer.Version)
+	}
+	if !answer.Identified {
+		t.Error("the golden answer identifies the running build")
+	}
+}
+
+// TestAnUnidentifiedBuildStillDecodes.
+//
+// The service cannot always tell which image a product runs — a development
+// build, a private rebuild, an image published before the version label existed.
+// The answer then describes the newest published build instead, and `identified`
+// is the only thing that says so. A client that could not decode that answer
+// would treat the one case it must handle carefully as a transport failure.
+func TestAnUnidentifiedBuildStillDecodes(t *testing.T) {
+	const unidentified = `{
+  "update": {
+    "stack": "pentagi",
+    "has_update": true,
+    "images": [
+      {
+        "component": "pentagi",
+        "os": "linux",
+        "arch": "amd64",
+        "action": "install",
+        "pinned": false,
+        "repository": "vxcontrol/pentagi",
+        "tag": "latest",
+        "pull_reference": "vxcontrol/pentagi:latest",
+        "image_hash": "1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    ],
+    "resolution": "channel"
+  },
+  "identified": false
+}`
+
+	var answer ProductUpdateResponse
+	if err := json.Unmarshal([]byte(unidentified), &answer); err != nil {
+		t.Fatalf("an unidentified answer must decode: %v", err)
+	}
+	if err := answer.Valid(); err != nil {
+		t.Fatalf("an unidentified answer must validate: %v", err)
+	}
+	if answer.Identified {
+		t.Error("identified must be false when the service could not match the build")
+	}
+	if answer.Version != nil || answer.Binary != nil {
+		t.Error("nothing may be invented for a build the service could not identify")
+	}
+}
 
 func TestProductUpdateRequestMatchesTheGoldenWireForm(t *testing.T) {
 	var request ProductUpdateRequest
@@ -790,6 +929,9 @@ func TestProductUpdateRequestMatchesTheGoldenWireForm(t *testing.T) {
 	}
 	if len(request.BinaryHash) != 64 {
 		t.Errorf("binary hash lost: %q", request.BinaryHash)
+	}
+	if request.Strategy != UpdateStrategyPreview {
+		t.Errorf("the channel to answer from was lost: %q", request.Strategy)
 	}
 
 	// Carried byte for byte, not reshaped. The whole point of the field is that
@@ -872,5 +1014,40 @@ func TestProductUpdateRequestRequiresASemanticVersion(t *testing.T) {
 	request.Version = "0.0.0"
 	if err := request.Valid(); err != nil {
 		t.Fatalf("the normalised placeholder must pass: %v", err)
+	}
+}
+
+// The strategy arrived after the endpoint shipped, so a deployed build sends
+// none. Requiring it would make every one of those requests invalid on this side
+// before it even left the process, over a field whose absence has an obviously
+// correct meaning on the other.
+func TestProductUpdateRequestLeavesTheStrategyOptional(t *testing.T) {
+	request := ProductUpdateRequest{
+		Schema:  1,
+		Version: "0.9.3",
+		OS:      OSTypeLinux,
+		Arch:    ArchTypeAMD64,
+		Info:    json.RawMessage(`{"schema":1}`),
+	}
+	if err := request.Valid(); err != nil {
+		t.Fatalf("a request naming no strategy must validate: %v", err)
+	}
+	// Omitted rather than sent empty: the service validates the field when it is
+	// present, and "" is not a member of the vocabulary.
+	encoded, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("the request must encode: %v", err)
+	}
+	if strings.Contains(string(encoded), "strategy") {
+		t.Errorf("an unset strategy must not reach the wire: %s", encoded)
+	}
+
+	request.Strategy = UpdateStrategy("whatever")
+	if err := request.Valid(); err == nil {
+		t.Fatal("an unrecognised strategy must not validate")
+	}
+	request.Strategy = UpdateStrategyStable
+	if err := request.Valid(); err != nil {
+		t.Fatalf("a named strategy must validate: %v", err)
 	}
 }

@@ -77,7 +77,7 @@ func templateValidatorString(regexpString string) validator.Func {
 }
 
 // fileComponentValidator backs the `filecomp` tag: the field names a component
-// that is delivered as a FILE.
+// a file is published for — ArtifactKindFile, and ArtifactKindFileImage.
 //
 // It reads the static table in artefacts.go instead of an `oneof=` list. The
 // hand-written copies of that list — one here, three on the service side — had

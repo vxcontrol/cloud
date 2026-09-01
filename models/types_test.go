@@ -89,7 +89,7 @@ var goldenComponentStacks = map[string]string{
 // table that drifts between the two sides is a client reporting an artefact in
 // a list the service will reject, or worse, in one it will answer wrongly.
 var goldenComponentKinds = map[string]string{
-	"pentagi":           "image",
+	"pentagi":           "file-image",
 	"scraper":           "image",
 	"langfuse-worker":   "image",
 	"langfuse-web":      "image",

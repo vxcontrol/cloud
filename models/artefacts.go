@@ -5,8 +5,8 @@ import (
 	"strings"
 )
 
-// ArtifactKind is how a component reaches an installation: pulled from a
-// registry, or downloaded as a file.
+// ArtifactKind is what artefacts exist for a component: a pulled image, a
+// downloaded file, or both.
 //
 // It is a property of the COMPONENT — fixed by how it is built and shipped —
 // and not of the request that mentions it. Deriving it from which fields a
@@ -24,6 +24,18 @@ const (
 	// Files have no repository and no tag, so the whole tag-and-channel half of
 	// update resolution is inapplicable to them.
 	ArtifactKindFile ArtifactKind = "file"
+
+	// ArtifactKindFileImage is both: pulled from a registry like an image, and
+	// published as a downloadable executable like a file.
+	//
+	// pentagi is one. An installer pulls the container and reports it under
+	// `images`; a running product reports the executable under `files` and can
+	// replace it without waiting for a pull. The two facts are one kind, not a
+	// kind plus a side table: moving pentagi to ArtifactKindFile would take it
+	// out of every update check's `images` list, and leaving it as
+	// ArtifactKindImage would refuse it under `files` and refuse the download
+	// of its own executable.
+	ArtifactKindFileImage ArtifactKind = "file-image"
 )
 
 func (ak ArtifactKind) String() string {
@@ -32,10 +44,30 @@ func (ak ArtifactKind) String() string {
 
 func (ak ArtifactKind) Valid() error {
 	switch ak {
-	case ArtifactKindImage, ArtifactKindFile:
+	case ArtifactKindImage, ArtifactKindFile, ArtifactKindFileImage:
 		return nil
 	default:
 		return fmt.Errorf("invalid ArtifactKind: %s", ak)
+	}
+}
+
+// HasFile reports whether a downloadable file is published for this kind.
+func (ak ArtifactKind) HasFile() bool {
+	switch ak {
+	case ArtifactKindFile, ArtifactKindFileImage:
+		return true
+	default:
+		return false
+	}
+}
+
+// HasImage reports whether this kind is pulled from a registry.
+func (ak ArtifactKind) HasImage() bool {
+	switch ak {
+	case ArtifactKindImage, ArtifactKindFileImage:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -59,9 +91,12 @@ var componentArtifactKinds = map[ComponentType]ArtifactKind{
 	ComponentTypeEngineScenario:   ArtifactKindFile,
 	ComponentTypeJaegerClickhouse: ArtifactKindFile,
 
+	// Both: the installer pulls a container, and a running product can also
+	// download the executable of the same build.
+	ComponentTypePentagi: ArtifactKindFileImage,
+
 	// Delivered as images: everything published to a registry, plus every
 	// third-party service a stack starts from one.
-	ComponentTypePentagi:         ArtifactKindImage,
 	ComponentTypeScraper:         ArtifactKindImage,
 	ComponentTypeWorker:          ArtifactKindImage,
 	ComponentTypePgvector:        ArtifactKindImage,
@@ -97,28 +132,34 @@ func (ct ComponentType) ArtifactKind() ArtifactKind {
 	return ArtifactKindImage
 }
 
-// IsFileComponent reports whether this component is delivered as a file.
+// IsFileComponent reports whether this component can appear under `files` and
+// whether a package of it can be downloaded. FileImage components are included:
+// they have that file in addition to the image an installer pulls.
 func (ct ComponentType) IsFileComponent() bool {
-	return ct.ArtifactKind() == ArtifactKindFile
+	return ct.ArtifactKind().HasFile()
 }
 
-// IsImageComponent reports whether this component is delivered as an image.
+// IsImageComponent reports whether this component can appear under `images`.
+// FileImage components are included: that is how an installer delivers them.
 func (ct ComponentType) IsImageComponent() bool {
-	return ct.ArtifactKind() == ArtifactKindImage
+	return ct.ArtifactKind().HasImage()
 }
 
-// FileComponentTypes and ImageComponentTypes are the vocabulary split by kind,
-// in vocabulary order. Derived from the table rather than written twice, so
-// there is no second list to forget.
+// FileComponentTypes and ImageComponentTypes are the vocabulary split by which
+// artefacts exist, in vocabulary order. Derived from the table rather than
+// written twice, so there is no second list to forget.
+//
+// They overlap: a FileImage component is in both, which is the whole point of
+// that kind.
 var (
-	FileComponentTypes  = componentsOfKind(ArtifactKindFile)
-	ImageComponentTypes = componentsOfKind(ArtifactKindImage)
+	FileComponentTypes  = componentsMatching(ArtifactKind.HasFile)
+	ImageComponentTypes = componentsMatching(ArtifactKind.HasImage)
 )
 
-func componentsOfKind(kind ArtifactKind) []ComponentType {
+func componentsMatching(match func(ArtifactKind) bool) []ComponentType {
 	out := make([]ComponentType, 0, len(AllComponentTypes))
 	for _, ct := range AllComponentTypes {
-		if ct.ArtifactKind() == kind {
+		if match(ct.ArtifactKind()) {
 			out = append(out, ct)
 		}
 	}
@@ -128,8 +169,12 @@ func componentsOfKind(kind ArtifactKind) []ComponentType {
 // FileComponentEnum is the file vocabulary as a comma-separated list, the form
 // documentation and hand-written enumerations have to match.
 func FileComponentEnum() string {
-	names := make([]string, 0, len(FileComponentTypes))
-	for _, ct := range FileComponentTypes {
+	return componentEnum(FileComponentTypes)
+}
+
+func componentEnum(components []ComponentType) string {
+	names := make([]string, 0, len(components))
+	for _, ct := range components {
 		names = append(names, ct.String())
 	}
 	return strings.Join(names, ",")
