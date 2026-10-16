@@ -180,7 +180,18 @@ func parseServerError(statusCode int, header http.Header, body []byte) error {
 		return fmt.Errorf("HTTP %d: %w", statusCode, ErrRequestFailed)
 	}
 
-	switch serverErr.Code {
+	return ErrorFromCode(serverErr.Code, parseRetryAfter(header))
+}
+
+// ErrorFromCode returns the error that a refusal of the server with the given code
+// stands for: one of the sentinels above, with the cooldown where that kind of refusal
+// carries one. It is what a call returns for a refusal answered before the response
+// began, and what a reader of an event stream returns for a refusal reported inside
+// the stream, so that errors.Is and errors.As give one answer for both. A code this
+// version does not know is ErrRequestFailed: never retried, whatever a newer server
+// meant by it.
+func ErrorFromCode(code string, retryAfter time.Duration) error {
+	switch code {
 	case "BadGateway":
 		return ErrBadGateway
 	case "Internal":
@@ -194,21 +205,21 @@ func parseServerError(statusCode int, header http.Header, body []byte) error {
 	case "NotFound":
 		return ErrNotFound
 	case "TooManyRequests":
-		return &RateLimitError{Err: ErrTooManyRequests, Scope: RateLimitScopeGeneral, RetryAfter: parseRetryAfter(header)}
+		return &RateLimitError{Err: ErrTooManyRequests, Scope: RateLimitScopeGeneral, RetryAfter: retryAfter}
 	case "TooManyRequestsRPM":
-		return &RateLimitError{Err: ErrTooManyRequestsRPM, Scope: RateLimitScopeRPM, RetryAfter: parseRetryAfter(header)}
+		return &RateLimitError{Err: ErrTooManyRequestsRPM, Scope: RateLimitScopeRPM, RetryAfter: retryAfter}
 	case "TooManyRequestsRPH":
-		return &RateLimitError{Err: ErrTooManyRequestsRPH, Scope: RateLimitScopeRPH, RetryAfter: parseRetryAfter(header)}
+		return &RateLimitError{Err: ErrTooManyRequestsRPH, Scope: RateLimitScopeRPH, RetryAfter: retryAfter}
 	case "TooManyRequestsRPD":
-		return &RateLimitError{Err: ErrTooManyRequestsRPD, Scope: RateLimitScopeRPD, RetryAfter: parseRetryAfter(header)}
+		return &RateLimitError{Err: ErrTooManyRequestsRPD, Scope: RateLimitScopeRPD, RetryAfter: retryAfter}
 	case "QuotaBlocked":
 		return &QuotaError{Err: ErrQuotaBlocked, Scope: QuotaScopeBlocked}
 	case "QuotaExceededDaily":
-		return &QuotaError{Err: ErrQuotaExceededDaily, Scope: QuotaScopeDaily, RetryAfter: parseRetryAfter(header)}
+		return &QuotaError{Err: ErrQuotaExceededDaily, Scope: QuotaScopeDaily, RetryAfter: retryAfter}
 	case "QuotaExceededMonthly":
-		return &QuotaError{Err: ErrQuotaExceededMonthly, Scope: QuotaScopeMonthly, RetryAfter: parseRetryAfter(header)}
+		return &QuotaError{Err: ErrQuotaExceededMonthly, Scope: QuotaScopeMonthly, RetryAfter: retryAfter}
 	default:
-		return fmt.Errorf("%s: %w", serverErr.Code, ErrRequestFailed)
+		return fmt.Errorf("%s: %w", code, ErrRequestFailed)
 	}
 }
 

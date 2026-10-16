@@ -178,7 +178,15 @@ func init() {
 	_, _ = reflect.ValueOf(MsgLogType("")).Interface().(IValid)
 	_, _ = reflect.ValueOf(SupportMsgLog{}).Interface().(IValid)
 	_, _ = reflect.ValueOf(SupportIssueMessagesResponse{}).Interface().(IValid)
+	_, _ = reflect.ValueOf(SupportIssueDetails{}).Interface().(IValid)
+	_, _ = reflect.ValueOf(SupportIssueProduct{}).Interface().(IValid)
+	_, _ = reflect.ValueOf(SupportIssueStatus("")).Interface().(IValid)
+	_, _ = reflect.ValueOf(SupportIssueStatusResponse{}).Interface().(IValid)
 
 	// product.go — what a running product tells the service about itself
 	_, _ = reflect.ValueOf(ProductUpdateRequest{}).Interface().(IValid)
+
+	// license.go — what a licensed installation is told of its licence
+	_, _ = reflect.ValueOf(LicenseQuota{}).Interface().(IValid)
+	_, _ = reflect.ValueOf(LicenseStatusResponse{}).Interface().(IValid)
 }

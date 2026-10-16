@@ -13,6 +13,8 @@
 //   - sdk: Main SDK package for API integration with 24 strongly-typed function patterns
 //   - models: Type-safe data models with built-in validation for all API interactions, plus
 //     ParseEnvelope[T] to unwrap the {"status":…,"data":…} envelope every JSON response arrives in
+//   - llm: a client of the language models of the API that speaks the OpenAI API to its
+//     caller: give a library of that API llm.BaseURL and an llm.Client as its HTTP client
 //   - anonymizer: Comprehensive PII/secrets masking engine with 300+ pattern recognition
 //   - system: Cross-platform utilities for stable installation ID generation
 //   - examples: Production-ready integration examples and usage patterns

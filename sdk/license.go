@@ -49,9 +49,26 @@ var ErrInvalidLicence = errors.New("invalid license")
 
 type LicenseInfo struct {
 	Type      LicenseType // license type (expireable or perpetual)
-	Flags     [7]bool     // permission flags
+	Flags     [7]bool     // permission flags, by LicenseFlag
 	ExpiredAt time.Time   // license expired at
 	CreatedAt time.Time   // license created at
+}
+
+// LicenseFlag is the place of a permission in LicenseInfo.Flags: what the issuer wrote
+// into the key. A key says what its licence may use; the server decides with what else
+// it knows of the licence, its tier among it.
+type LicenseFlag int
+
+const (
+	LicenseFlagSupport       LicenseFlag = iota // errors and issues reported through the API
+	LicenseFlagUpdates                          // update checks and the download of the installer
+	LicenseFlagKnowledgeBase                    // the knowledge base through the API
+	LicenseFlagCloudLLM                         // the language models of the PentAGI Cloud API
+)
+
+// Allows reports whether the key carries the permission flag.
+func (l *LicenseInfo) Allows(flag LicenseFlag) bool {
+	return flag >= 0 && int(flag) < len(l.Flags) && l.Flags[flag]
 }
 
 func (l *LicenseInfo) IsValid() bool {

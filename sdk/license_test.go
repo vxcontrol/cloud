@@ -532,3 +532,18 @@ func loadSDKTestData(t *testing.T) *testData {
 
 	return &td
 }
+
+// A permission is read by its name: each flag of a key allows only what it is the flag
+// of, and a place past the flags allows nothing.
+func TestLicenseInfoAllows(t *testing.T) {
+	for _, flag := range []LicenseFlag{LicenseFlagSupport, LicenseFlagUpdates, LicenseFlagKnowledgeBase, LicenseFlagCloudLLM} {
+		var info LicenseInfo
+		info.Flags[flag] = true
+		for _, other := range []LicenseFlag{LicenseFlagSupport, LicenseFlagUpdates, LicenseFlagKnowledgeBase, LicenseFlagCloudLLM} {
+			assert.Equal(t, flag == other, info.Allows(other), "flag %d asked for %d", flag, other)
+		}
+	}
+	full := LicenseInfo{Flags: [7]bool{true, true, true, true, true, true, true}}
+	assert.False(t, full.Allows(LicenseFlag(-1)))
+	assert.False(t, full.Allows(LicenseFlag(len(full.Flags))))
+}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -1100,6 +1101,78 @@ func TestConcurrentCalls(t *testing.T) {
 	for i := range numCalls {
 		if err := <-results; err != nil {
 			t.Errorf("concurrent call %d failed: %v", i, err)
+		}
+	}
+}
+
+// The body of every answer is ciphertext: compressing it gains nothing, and a hop that
+// compresses collects bytes before it lets them through, which holds back the frames
+// of a streamed answer and its keep-alive. The request therefore asks for the bytes as
+// they are, on the ticket and on the call, whatever headers the caller added.
+func TestRequestsAskEveryHopForAnUncompressedAnswer(t *testing.T) {
+	mockSrv := newMockServer()
+	var mu sync.Mutex
+	asked := map[string][]string{}
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		kind := "call"
+		if strings.HasPrefix(r.URL.Path, defaultTicketPath) {
+			kind = "ticket"
+		}
+		asked[kind] = append(asked[kind], r.Header.Get("Accept-Encoding"))
+		mu.Unlock()
+		mockSrv.handler(w, r)
+	}))
+	defer server.Close()
+
+	testTicket, exists := mockSrv.ticketsByName["valid_success"]
+	if !exists {
+		t.Fatal("valid_success ticket not found in test data")
+	}
+	installationID, err := uuid.Parse(testTicket.InstallationID)
+	if err != nil {
+		t.Fatalf("invalid InstallationID: %v", err)
+	}
+	if len(mockSrv.testData.ResponseData) == 0 {
+		t.Skip("no response data found in test data")
+	}
+
+	var testCall CallReqRespBytes
+	configs := []CallConfig{{
+		Calls:  []any{&testCall},
+		Host:   strings.TrimPrefix(server.URL, "https://"),
+		Name:   "valid_success",
+		Path:   "/api/v1/call/" + mockSrv.testData.ResponseData[0].Name,
+		Method: CallMethodGET,
+	}}
+	transport := DefaultTransport()
+	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	err = Build(configs,
+		withServerPublicKey(mockSrv.getPublicKey()),
+		WithInstallationID([16]byte(installationID)),
+		WithPowTimeout(1*time.Second),
+		WithHeaders(map[string]string{"Accept-Encoding": "gzip"}),
+		WithTransport(transport))
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if _, err := testCall(ctx); err != nil {
+		t.Fatalf("the call failed: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	for _, kind := range []string{"ticket", "call"} {
+		if len(asked[kind]) == 0 {
+			t.Errorf("no %s request was seen", kind)
+		}
+		for _, encoding := range asked[kind] {
+			if encoding != "identity" {
+				t.Errorf("the %s request asked for %q", kind, encoding)
+			}
 		}
 	}
 }

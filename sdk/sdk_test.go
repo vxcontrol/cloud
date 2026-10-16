@@ -783,3 +783,54 @@ func encodeLicenseKey(key [10]byte) string {
 
 	return string(result[:])
 }
+
+// A refusal reported inside an event stream has to come out as the very error the same
+// refusal gives when it is answered before the response begins: one code space, and
+// one answer from errors.Is and errors.As whichever way the refusal arrived.
+func TestErrorFromCode_GivesTheErrorOfARefusalAnsweredBeforeTheResponse(t *testing.T) {
+	codes := map[string]error{
+		"BadGateway":           ErrBadGateway,
+		"Internal":             ErrServerInternal,
+		"BadRequest":           ErrBadRequest,
+		"Forbidden":            ErrForbidden,
+		"Blocked":              ErrBlocked,
+		"NotFound":             ErrNotFound,
+		"TooManyRequests":      ErrTooManyRequests,
+		"TooManyRequestsRPM":   ErrTooManyRequestsRPM,
+		"TooManyRequestsRPH":   ErrTooManyRequestsRPH,
+		"TooManyRequestsRPD":   ErrTooManyRequestsRPD,
+		"QuotaBlocked":         ErrQuotaBlocked,
+		"QuotaExceededDaily":   ErrQuotaExceededDaily,
+		"QuotaExceededMonthly": ErrQuotaExceededMonthly,
+		"SomethingNewer":       ErrRequestFailed,
+	}
+	for code, want := range codes {
+		early := parseServerError(http.StatusTeapot, http.Header{"Retry-After": {"42"}},
+			[]byte(`{"status":"error","code":"`+code+`"}`))
+		late := ErrorFromCode(code, 42*time.Second)
+		if early == nil || late == nil {
+			t.Fatalf("%s: early %v, late %v", code, early, late)
+		}
+		if !errors.Is(early, want) || !errors.Is(late, want) {
+			t.Errorf("%s: before the response %v, inside the stream %v, want %v", code, early, late, want)
+		}
+		if early.Error() != late.Error() || isTemporaryError(early) != isTemporaryError(late) ||
+			RetryAfterOf(early) != RetryAfterOf(late) {
+			t.Errorf("%s: before the response %v (retry %v), inside the stream %v (retry %v)",
+				code, early, RetryAfterOf(early), late, RetryAfterOf(late))
+		}
+	}
+
+	if got := RetryAfterOf(ErrorFromCode("QuotaExceededDaily", 42*time.Second)); got != 42*time.Second {
+		t.Errorf("the cooldown of a quota refusal: got %v", got)
+	}
+	if got := RetryAfterOf(ErrorFromCode("TooManyRequestsRPM", 7*time.Second)); got != 7*time.Second {
+		t.Errorf("the cooldown of a rate refusal: got %v", got)
+	}
+
+	// a code of a newer server is a failure of the request and is never sent again
+	unknown := ErrorFromCode("SomethingNewer", time.Second)
+	if !errors.Is(unknown, ErrRequestFailed) || isTemporaryError(unknown) {
+		t.Errorf("an unknown code: got %v, temporary %v", unknown, isTemporaryError(unknown))
+	}
+}

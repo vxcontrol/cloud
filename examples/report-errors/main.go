@@ -17,6 +17,7 @@ import (
 	"github.com/vxcontrol/cloud/anonymizer"
 	"github.com/vxcontrol/cloud/models"
 	"github.com/vxcontrol/cloud/sdk"
+	"github.com/vxcontrol/cloud/sdk/sse"
 	"github.com/vxcontrol/cloud/system"
 )
 
@@ -141,14 +142,20 @@ func (c *Client) InvestigateIssue(
 // InvestigateIssueWithStream starts AI-powered investigation of a support issue
 // and renders the answer live, as it streams in.
 //
-// The stream is raw SSE, not the JSON envelope the non-streaming form uses:
-// `event: <name>` / `data: <json>` pairs, opening with `start` and ending with
-// `done`. Buffering the whole thing with io.ReadAll before printing anything —
-// the simplest thing to write — is also the one thing that defeats the point
-// of streaming: the caller would wait exactly as long as the non-stream call
-// and then see the full answer appear at once. streamRenderer (stream_render.go)
-// parses each frame as it arrives and prints it immediately, which is what
-// makes the assistant's answer visibly "type itself" in the terminal.
+// The stream is an event stream, not the JSON envelope the non-streaming form
+// uses: `event: <name>` / `data: <json>` frames, opening with `start` and ending
+// with exactly one of `done` and `error`. The sdk/sse package reads it: it hands
+// over the events of the call, consumes the heartbeats, and returns nil only for
+// a stream that ended with `done` — a refusal of the server comes back as an
+// *sse.Error that errors.Is matches against the errors of the sdk package, and
+// a connection lost on the way as sse.ErrStreamCut, never as a short answer.
+//
+// Buffering the whole thing with io.ReadAll before printing anything — the
+// simplest thing to write — is also the one thing that defeats the point of
+// streaming: the caller would wait exactly as long as the non-stream call and
+// then see the full answer appear at once. streamRenderer (stream_render.go)
+// prints each event as it arrives, which is what makes the assistant's answer
+// visibly "type itself" in the terminal.
 func (c *Client) InvestigateIssueWithStream(
 	ctx context.Context, issueID uuid.UUID, userInput string,
 ) (string, error) {
@@ -170,9 +177,12 @@ func (c *Client) InvestigateIssueWithStream(
 	defer stream.Close()
 
 	renderer := &streamRenderer{}
-	if err := readSSEStream(stream, renderer.handle); err != nil {
+	err = sse.Read(stream, sdk.ErrorFromCode, renderer.handle)
+	renderer.breakLine()
+	if err != nil {
 		return "", fmt.Errorf("failed to read investigation stream: %w", err)
 	}
+	fmt.Println("--- done ---")
 
 	return renderer.answer.String(), nil
 }

@@ -310,6 +310,30 @@
 //   - ErrInvalidSignature: Cryptographic validation failure
 //   - ErrReplayAttack: Security violation detected
 //
+// ## Event Streams
+//
+// A call that answers with an event stream returns a reader (CallReqBytesRespReader
+// and its siblings); the sse subpackage reads it. The stream opens with a start event,
+// carries heartbeats and the events of the call, and ends with exactly one of done and
+// error — the answer is complete only if done arrived:
+//
+//	stream, err := api.Investigate(ctx, requestData)
+//	if err != nil {
+//	    return err // refused before the stream began
+//	}
+//	defer stream.Close()
+//
+//	err = sse.Read(stream, sdk.ErrorFromCode, func(event sse.Event) error {
+//	    // event.Name, event.Data
+//	    return nil
+//	})
+//
+// The handler receives start and the events of the call; the reader consumes the
+// heartbeats. A refusal reported inside the stream comes back as an *sse.Error whose
+// chain holds the error ErrorFromCode gives the same code, so errors.Is and errors.As
+// treat it as they treat the error of a refused call. A body that ends before done or
+// error is sse.ErrStreamCut: not an answer, and not a reason to repeat the request.
+//
 // # Logging Integration
 //
 // ## Structured Logging

@@ -109,6 +109,9 @@ func (c *callFunc) getTicket(cctx *callContext) (string, error) {
 	}
 
 	c.sdk.applyExtraHeaders(httpReq)
+	// the body of an answer is ciphertext, which does not compress, and a streamed
+	// answer must reach the caller frame by frame: ask every hop for the bytes as they are
+	httpReq.Header.Set("Accept-Encoding", "identity")
 	httpReq.Header.Set(headerXInstallationID, uuid.UUID(c.sdk.installationID).String())
 	httpReq.Header.Set(headerXRequestID, requestID.String())
 	httpReq.Header.Set(headerXRequestKey, requestKeyHeader)
@@ -321,6 +324,9 @@ func (c *callFunc) invokeRequest(cctx *callContext) error {
 	}
 
 	c.sdk.applyExtraHeaders(httpReq)
+	// the body of an answer is ciphertext, which does not compress, and a streamed
+	// answer must reach the caller frame by frame: ask every hop for the bytes as they are
+	httpReq.Header.Set("Accept-Encoding", "identity")
 	httpReq.Header.Set(headerXInstallationID, uuid.UUID(c.sdk.installationID).String())
 	httpReq.Header.Set(headerXRequestID, td.RequestID.String())
 	httpReq.Header.Set(headerXRequestSign, signature)
