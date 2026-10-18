@@ -539,11 +539,11 @@ func (s sdk) parsePath(p string) (pathGenerator, int, error) {
 			return "", fmt.Errorf("invalid number of arguments: must be %d: %v", len(indices), names)
 		}
 
-		parts = slices.Clone(parts)
+		callParts := slices.Clone(parts)
 		for idx, arg := range args {
-			parts[indices[idx]] = arg
+			callParts[indices[idx]] = arg
 		}
 
-		return strings.Join(parts, "/"), nil
+		return strings.Join(callParts, "/"), nil
 	}, len(indices), nil
 }

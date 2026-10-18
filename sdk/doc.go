@@ -1,7 +1,7 @@
 // Package sdk provides enterprise-grade Go SDK for secure integration with VXControl Cloud Platform APIs.
 //
 // The SDK implements a comprehensive security framework featuring memory-hard proof-of-work
-// protection, end-to-end AES-GCM encryption, Ed25519 signatures, and automatic retry logic.
+// protection, end-to-end AES-GCM encryption, PoW request authentication, and automatic retry logic.
 // It offers 24 strongly-typed function patterns covering all request/response scenarios
 // with built-in connection pooling, HTTP/2 support, and streaming architecture for
 // high-performance integration with cloud services.
@@ -12,7 +12,7 @@
 //
 //   - Call Generation: 24 strongly-typed function patterns for all API scenarios
 //   - Transport Layer: HTTP/2 optimized transport with connection pooling
-//   - Security Engine: PoW challenges, AES-GCM encryption, Ed25519 signatures
+//   - Security Engine: PoW challenges, AES-GCM encryption, request authentication
 //   - License System: Cryptographic license validation with tier enforcement
 //   - Logging Framework: Structured logging with configurable levels and formats
 //
@@ -132,27 +132,18 @@
 //
 // ## Cryptographic Protection
 //
-// Multi-layer encryption and signature system:
-//
-//	// Session Key Generation
-//	sessionKey := [16]byte{} // AES-128 for request/response encryption
-//	sessionIV := [16]byte{}  // Unique IV per request
-//
-//	// NaCL Key Exchange
-//	clientPublic, clientPrivate := box.GenerateKey(rand.Reader)
-//	sharedKey := box.Precompute(serverPublic, clientPrivate)
-//
-//	// Request Encryption
-//	encryptedBody := EncryptStream(requestBody, sessionKey, sessionIV)
-//
-//	// Response Decryption
-//	decryptedResponse := DecryptStream(responseBody, sessionKey, sessionIV)
+// Generated API calls manage session keys, IVs and request IDs internally. Callers
+// pass plaintext bodies and receive plaintext responses through the generated calls.
+// The public encryption helpers also support standalone streams: both ends must use
+// the same key, IV, request ID and direction. StreamRequest and StreamResponse
+// distinguish the two directions of a request. StreamLegacy ignores the request ID
+// and uses the original framing without sequence or final-frame verification.
 //
 // Cryptographic Features:
-//   - AES-GCM streaming encryption with 1KB configurable chunks
-//   - NaCL (Curve25519) key exchange for session key protection
-//   - Ed25519 signatures for data integrity verification
-//   - Forward secrecy through daily server key rotation
+//   - AES-128-GCM encryption and authentication of each frame
+//   - NaCl box (Curve25519) protection of session keys
+//   - Request authentication binds the method, URI and installation ID
+//   - Protected frames bind the request ID, direction, sequence and authenticated end
 //
 // ## License System
 //
@@ -188,7 +179,14 @@
 //
 // ## Encryption Streaming
 //
-// Memory-efficient encryption for large data transfers:
+// These standalone examples assume that the sender and receiver securely share
+// sessionKey and sessionIV. Generate a fresh requestID with crypto/rand for each
+// standalone protected stream and provide the same value to its receiver:
+//
+//	var requestID [16]byte
+//	if _, err := rand.Read(requestID[:]); err != nil {
+//	    return err
+//	}
 //
 //	// Encrypt large files without memory accumulation
 //	file, err := os.Open("large-file.dat")
@@ -197,8 +195,7 @@
 //	}
 //	defer file.Close()
 //
-//	// Create streaming encryptor
-//	encryptedStream, err := sdk.EncryptStream(file, sessionKey, sessionIV)
+//	encryptedStream, err := sdk.EncryptStream(file, sessionKey, sessionIV, requestID, sdk.StreamRequest)
 //	if err != nil {
 //	    return err
 //	}
@@ -206,29 +203,36 @@
 //
 //	// Stream encrypted data to destination
 //	_, err = io.Copy(destination, encryptedStream)
+//	if err != nil {
+//	    return err
+//	}
 //
 // ## Decryption Streaming
 //
 // Streaming decryption with authentication validation:
 //
-//	// Decrypt response stream directly to file
+//	// Decrypt the standalone stream with the sender's request ID and direction
 //	outputFile, err := os.Create("decrypted-output.dat")
 //	if err != nil {
 //	    return err
 //	}
 //	defer outputFile.Close()
 //
-//	// Use DecryptProxy for direct streaming
-//	err = sdk.DecryptProxy(encryptedResponse, outputFile, sessionKey, sessionIV)
+//	err = sdk.DecryptProxy(encryptedInput, outputFile, sessionKey, sessionIV, requestID, sdk.StreamRequest)
 //	if err != nil {
 //	    return fmt.Errorf("decryption failed: %w", err)
 //	}
 //
+// Protected streams must be read to EOF to verify their final frame; Close does not
+// perform this check. A protected decryptor retains its first read error. Decryption
+// can deliver authenticated data before a later error, so a partially written output
+// must not be treated as a complete result.
+//
 // Streaming Features:
-//   - Configurable chunk sizes (default 16KB, max 1MB)
-//   - Per-chunk authentication prevents tampering
-//   - Random nonces ensure GCM security properties
-//   - No memory accumulation regardless of data size
+//   - Encryption reads up to 16 KiB per frame; encrypted frame bodies are limited to 1 MiB
+//   - Frame authentication and protected-stream sequence verification
+//   - A random 96-bit nonce for each frame
+//   - Bounded buffering in the stream helpers
 //
 // # Transport Layer
 //
@@ -315,7 +319,7 @@
 // A call that answers with an event stream returns a reader (CallReqBytesRespReader
 // and its siblings); the sse subpackage reads it. The stream opens with a start event,
 // carries heartbeats and the events of the call, and ends with exactly one of done and
-// error — the answer is complete only if done arrived:
+// error. A successful answer requires done and verification of the encrypted stream's EOF:
 //
 //	stream, err := api.Investigate(ctx, requestData)
 //	if err != nil {
@@ -327,6 +331,13 @@
 //	    // event.Name, event.Data
 //	    return nil
 //	})
+//	if err != nil {
+//	    return err
+//	}
+//	// The done event ends the SSE stream; EOF verifies the encrypted stream's final frame.
+//	if _, err = io.Copy(io.Discard, stream); err != nil {
+//	    return err
+//	}
 //
 // The handler receives start and the events of the call; the reader consumes the
 // heartbeats. A refusal reported inside the stream comes back as an *sse.Error whose
@@ -590,7 +601,8 @@
 //
 // # Thread Safety
 //
-// All SDK operations are thread-safe and optimized for concurrent usage:
+// Generated API calls can run concurrently after Build completes. Each stream reader
+// belongs to one operation and must not be read concurrently:
 //
 //	// Single SDK instance can handle concurrent requests
 //	var client Client

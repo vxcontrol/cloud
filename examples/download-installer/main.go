@@ -57,7 +57,14 @@ func (c *Client) DownloadLatestInstaller(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to create target file: %w", err)
 	}
-	defer file.Close()
+	// The file is closed before it is removed (Windows removes no open file, and a
+	// package that failed its checks must not stay) and before its path is returned
+	// (a write can fail as late as Close).
+	discard := func(err error) (string, error) {
+		_ = file.Close()
+		_ = os.Remove(path)
+		return "", err
+	}
 
 	// Two independent checks over the same stream: the Ed25519 signature over
 	// the file's SHA-512 digest, and the SHA-256 the package info announced.
@@ -73,23 +80,24 @@ func (c *Client) DownloadLatestInstaller(ctx context.Context) (string, error) {
 		Arch:      packageInfo.Arch,
 	}
 	if err := downloadReq.Valid(); err != nil {
-		return "", err
+		return discard(err)
 	}
 	if err := c.packageDownload(ctx, downloadReq.Query(), protectedWriter); err != nil {
-		os.Remove(path)
-		return "", fmt.Errorf("failed to download package: %w", err)
+		return discard(fmt.Errorf("failed to download package: %w", err))
 	}
 
 	if err := protectedWriter.Valid(); err != nil {
-		os.Remove(path)
-		return "", fmt.Errorf("failed to validate signature: %w", err)
+		return discard(fmt.Errorf("failed to validate signature: %w", err))
 	}
 
 	if got := hex.EncodeToString(digest.Sum(nil)); got != packageInfo.Hash {
-		os.Remove(path)
-		return "", fmt.Errorf("hash mismatch: expected %s, got %s", packageInfo.Hash, got)
+		return discard(fmt.Errorf("hash mismatch: expected %s, got %s", packageInfo.Hash, got))
 	}
 
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", fmt.Errorf("failed to write target file: %w", err)
+	}
 	return path, nil
 }
 

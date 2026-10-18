@@ -119,7 +119,7 @@ body:
         - label: I have checked that this issue hasn't been already reported
         - label: I have provided SDK configuration details (with sensitive data removed)
         - label: I have included relevant error messages and stack traces
-        - label: I am using a supported Go version (1.24.0+)
+        - label: I am using a supported Go version (1.26.5+)
         - label: I have tested with the latest SDK version
     validations:
       required: true

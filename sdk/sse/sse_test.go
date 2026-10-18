@@ -112,21 +112,43 @@ func TestReader_Next_KeepsTheCauseOfACutStream(t *testing.T) {
 	}
 }
 
-// Once "done" or "error" has arrived the answer is known. A reader that went on reading
-// would wait on a connection the server may keep open, or fail a complete answer on
-// whatever an intermediary appended to it.
-func TestReader_Next_DoesNotReadPastTheOutcome(t *testing.T) {
-	refusal := "event: start\ndata: {}\n\nevent: error\ndata: {\"code\":\"Internal\",\"message\":\"internal server error\"}\n\n"
-	for name, stream := range map[string]string{"done": transcript, "error": refusal} {
-		body := &failingReader{held: stream, err: errors.New("the body was read past the outcome")}
-		r := NewReader(body, classify)
-		var outcome error
-		for outcome == nil {
-			_, outcome = r.Next()
-		}
-		if _, again := r.Next(); again != outcome || errors.Is(outcome, ErrStreamCut) {
-			t.Errorf("%s: outcome %v, then %v", name, outcome, again)
-		}
+func TestReader_Next_KeepsTheVerifiedOutcome(t *testing.T) {
+	cause := errors.New("the body failed after the outcome")
+	for name, tc := range map[string]struct {
+		body string
+		tail error
+		want error
+	}{
+		"done and body end": {transcript, io.EOF, io.EOF},
+		"failed body end":   {transcript, cause, ErrStreamCut},
+		"wrapped EOF":       {transcript, fmt.Errorf("failed end: %w", io.EOF), ErrStreamCut},
+		"data after done":   {transcript + "x", io.EOF, ErrMalformed},
+		"refusal":           {"event: error\ndata: {\"code\":\"QuotaExceededDaily\"}\n\n", cause, errQuota},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := NewReader(&failingReader{held: tc.body, err: tc.tail}, classify)
+			var outcome error
+			for outcome == nil {
+				_, outcome = r.Next()
+			}
+			if !errors.Is(outcome, tc.want) {
+				t.Fatalf("outcome %v, want %v", outcome, tc.want)
+			}
+			if tc.want == ErrStreamCut && !errors.Is(outcome, tc.tail) {
+				t.Errorf("lost body error: %v", outcome)
+			}
+			if _, again := r.Next(); again != outcome {
+				t.Errorf("outcome %v, then %v", outcome, again)
+			}
+			_, _, err := events(&failingReader{held: tc.body, err: tc.tail})
+			if tc.want == io.EOF {
+				if err != nil {
+					t.Errorf("complete stream: %v", err)
+				}
+			} else if !errors.Is(err, tc.want) {
+				t.Errorf("Read returned %v, want %v", err, tc.want)
+			}
+		})
 	}
 }
 

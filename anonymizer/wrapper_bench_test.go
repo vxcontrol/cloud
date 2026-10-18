@@ -92,7 +92,9 @@ func BenchmarkWrapper_WithRealReplacer(b *testing.B) {
 
 		for b.Loop() {
 			wrapper := replacer.WrapReader(bytes.NewReader(testData))
-			io.Copy(io.Discard, wrapper)
+			if _, err := io.Copy(io.Discard, wrapper); err != nil {
+				b.Fatal(err)
+			}
 		}
 
 		b.ReportMetric(float64(len(testData)), "bytes/op")
@@ -106,7 +108,10 @@ func BenchmarkWrapper_WithRealReplacer(b *testing.B) {
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
 				wrapper := replacer.WrapReader(bytes.NewReader(testData))
-				io.Copy(io.Discard, wrapper)
+				if _, err := io.Copy(io.Discard, wrapper); err != nil {
+					b.Error(err) // RunParallel: Fatal must not be called from its goroutines
+					return
+				}
 			}
 		})
 
@@ -180,7 +185,9 @@ func BenchmarkWrapper_ReplacementIntensive(b *testing.B) {
 
 	for b.Loop() {
 		wrapper := newWrapper(strings.NewReader(testData), replacer)
-		io.Copy(io.Discard, wrapper)
+		if _, err := io.Copy(io.Discard, wrapper); err != nil {
+			b.Fatal(err)
+		}
 	}
 
 	b.ReportMetric(float64(len(testData)), "bytes/op")
@@ -203,7 +210,9 @@ func BenchmarkWrapper_NoReplacementNeeded(b *testing.B) {
 
 	for b.Loop() {
 		wrapper := newWrapper(strings.NewReader(testData), replacer)
-		io.Copy(io.Discard, wrapper)
+		if _, err := io.Copy(io.Discard, wrapper); err != nil {
+			b.Fatal(err)
+		}
 	}
 
 	b.ReportMetric(float64(len(testData)), "bytes/op")
@@ -226,7 +235,9 @@ func BenchmarkWrapper_OverlapHeavy(b *testing.B) {
 
 	for b.Loop() {
 		wrapper := newWrapper(strings.NewReader(testData), replacer)
-		io.Copy(io.Discard, wrapper)
+		if _, err := io.Copy(io.Discard, wrapper); err != nil {
+			b.Fatal(err)
+		}
 	}
 
 	b.ReportMetric(float64(len(testData)), "bytes/op")

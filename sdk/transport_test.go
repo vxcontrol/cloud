@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMockServerBasic(t *testing.T) {
@@ -291,9 +293,97 @@ func TestProtocolSecurity(t *testing.T) {
 			}
 		}
 	})
+
+	for _, tt := range []struct {
+		name          string
+		emptyBody     bool
+		missingFinal  bool
+		legacyBody    bool
+		wantError     error
+		wantMessage   string
+		wantPlaintext string
+	}{
+		{name: "protected response with legacy ticket", wantPlaintext: testResponseData},
+		{name: "no ciphertext", emptyBody: true, wantError: io.ErrUnexpectedEOF},
+		{name: "no final frame", missingFinal: true, wantError: io.ErrUnexpectedEOF, wantPlaintext: testResponseData},
+		{name: "legacy API response", legacyBody: true, wantMessage: "GCM decryption failed"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			mockSrv := newMockServer()
+			mockSrv.protectedEmptyBody = tt.emptyBody
+			mockSrv.protectedMissingFinal = tt.missingFinal
+			mockSrv.legacyAPIResponse = tt.legacyBody
+			server := mockSrv.createTLSServer()
+			t.Cleanup(server.Close)
+			ticket, exists := mockSrv.ticketsByName["valid_success"]
+			require.True(t, exists)
+			installationID, err := uuid.Parse(ticket.InstallationID)
+			require.NoError(t, err)
+
+			var calls testCallSuite
+			transport := DefaultTransport()
+			transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+			t.Cleanup(transport.CloseIdleConnections)
+			err = Build(calls.getCallConfigs(strings.TrimPrefix(server.URL, "https://"), "/api/v1/call"),
+				withServerPublicKey(mockSrv.getPublicKey()),
+				WithInstallationID([16]byte(installationID)),
+				WithPowTimeout(2*time.Second),
+				WithMaxRetries(3),
+				WithTransport(transport))
+			require.NoError(t, err)
+
+			checkError := func(err error) {
+				t.Helper()
+				switch {
+				case tt.wantError != nil:
+					require.ErrorIs(t, err, tt.wantError)
+				case tt.wantMessage != "":
+					require.ErrorContains(t, err, tt.wantMessage)
+				default:
+					require.NoError(t, err)
+				}
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			data, err := calls.CallBytes(ctx)
+			checkError(err)
+			if err != nil {
+				assert.Nil(t, data, "byte response must discard data when complete response validation fails")
+			} else {
+				assert.Equal(t, tt.wantPlaintext, string(data))
+			}
+
+			var dst bytes.Buffer
+			checkError(calls.CallWriter(ctx, &dst))
+			assert.Equal(t, tt.wantPlaintext, dst.String())
+
+			reader, err := calls.CallReader(ctx)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, reader.Close()) })
+			data, err = io.ReadAll(reader)
+			checkError(err)
+			assert.Equal(t, tt.wantPlaintext, string(data))
+
+			assert.Equal(t, []byte{2, 2, 2}, mockSrv.signedVersions(), "each call signs v2 once, with no retry or legacy fallback")
+		})
+	}
 }
 
 func TestProtocolUtilities(t *testing.T) {
+	t.Run("request_signature_hash", func(t *testing.T) {
+		randomPadding := []byte{1, 2, 3, 4, 5, 6, 7}
+		var nonce, installationID [16]byte
+		for i := range nonce {
+			nonce[i] = byte(i)
+			installationID[i] = byte(i + 16)
+		}
+
+		requestURI := "https://example.com:8443/api/v1/items/%2F?b=2&a=one+two"
+		hash := requestSignatureHash(randomPadding, "POST", requestURI, nonce, installationID)
+		assert.Equal(t, [4]byte{0xb3, 0xb3, 0xaf, 0xfe}, hash)
+		assert.NotEqual(t, hash, requestSignatureHash(randomPadding, "GET", requestURI, nonce, installationID))
+	})
+
 	t.Run("server_public_key", func(t *testing.T) {
 		key := getServerPublicKey()
 		if key == nil || *key == [32]byte{} {
@@ -689,8 +779,9 @@ func TestStreamingOperations(t *testing.T) {
 	}
 
 	var streamCall CallReqReaderRespReader
+	var bytesCall CallReqBytesRespBytes
 	configs := []CallConfig{{
-		Calls:  []any{&streamCall},
+		Calls:  []any{&streamCall, &bytesCall},
 		Host:   strings.TrimPrefix(server.URL, "https://"),
 		Name:   "valid_success",
 		Path:   "/api/v1/call/echo",
@@ -699,6 +790,7 @@ func TestStreamingOperations(t *testing.T) {
 
 	transport := DefaultTransport()
 	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	defer transport.CloseIdleConnections()
 
 	err = Build(configs,
 		withServerPublicKey(mockSrv.getPublicKey()),
@@ -709,30 +801,41 @@ func TestStreamingOperations(t *testing.T) {
 		t.Fatalf("Build failed: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// test streaming with large data
-	largeData := make([]byte, 10*1024) // 10KB
+	largeData := make([]byte, 2*16*1024+7)
 	for i := range largeData {
 		largeData[i] = byte('a' + (i % 26))
 	}
-
-	reader, err := streamCall(ctx, bytes.NewReader(largeData), int64(len(largeData)))
-	if err != nil {
-		t.Errorf("streaming call failed: %v", err)
-		return
-	}
-	defer reader.Close()
-
-	response, err := io.ReadAll(reader)
-	if err != nil {
-		t.Errorf("failed to read streaming response: %v", err)
-		return
-	}
-
-	if string(response) != string(largeData) {
-		t.Errorf("unexpected streaming response: got %d bytes, want %d bytes", len(response), len(largeData))
+	for _, tt := range []struct {
+		name          string
+		data          []byte
+		stream        bool
+		contentLength int64
+	}{
+		{name: "empty bytes omit body", data: []byte{}, contentLength: 0},
+		{name: "nonempty bytes are authenticated", data: []byte("byte request payload"), contentLength: -1},
+		{name: "reader crosses frame boundaries", data: largeData, stream: true, contentLength: -1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			bodyCount := len(mockSrv.echoContentLengths())
+			signCount := len(mockSrv.signedVersions())
+			var response []byte
+			if tt.stream {
+				reader, err := streamCall(ctx, bytes.NewReader(tt.data), int64(len(tt.data)))
+				require.NoError(t, err)
+				t.Cleanup(func() { require.NoError(t, reader.Close()) })
+				response, err = io.ReadAll(reader)
+				require.NoError(t, err)
+			} else {
+				var err error
+				response, err = bytesCall(ctx, tt.data)
+				require.NoError(t, err)
+			}
+			assert.Equal(t, string(tt.data), string(response))
+			assert.Equal(t, []int64{tt.contentLength}, mockSrv.echoContentLengths()[bodyCount:])
+			assert.Equal(t, []byte{2}, mockSrv.signedVersions()[signCount:], "one signed v2 request per call")
+		})
 	}
 }
 
@@ -1175,4 +1278,51 @@ func TestRequestsAskEveryHopForAnUncompressedAnswer(t *testing.T) {
 			}
 		}
 	}
+}
+
+// DefaultTransport hands its caller a TLS config to set roots and verification on — the
+// examples and the product write to it right away, and a nil one would panic — and speaks
+// HTTP/2 to a server that offers it, by the HTTP/2 of the standard library, also when the
+// caller replaced the TLS config with one that does not name it.
+func TestDefaultTransport_KeepsItsTLSConfigAndOffersWhatItSpeaks(t *testing.T) {
+	transport := DefaultTransport()
+	require.NotNil(t, transport.TLSClientConfig, "callers set their roots and verification on it")
+	require.NotNil(t, transport.Protocols)
+	assert.True(t, transport.Protocols.HTTP1() && transport.Protocols.HTTP2())
+
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, r.Proto)
+	}))
+	server.EnableHTTP2 = true
+	server.StartTLS()
+	defer server.Close()
+	roots := server.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs
+
+	for name, configure := range map[string]func(*http.Transport){
+		"its own config":      func(tr *http.Transport) { tr.TLSClientConfig.RootCAs = roots },
+		"a config of its own": func(tr *http.Transport) { tr.TLSClientConfig = &tls.Config{RootCAs: roots} },
+	} {
+		tr := DefaultTransport()
+		configure(tr)
+		resp, err := (&http.Client{Transport: tr}).Get(server.URL)
+		require.NoError(t, err, name)
+		body, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		require.NoError(t, err, name)
+		assert.Equal(t, "HTTP/2.0", string(body), name)
+		tr.CloseIdleConnections()
+	}
+
+	// an operator who turns the HTTP/2 of the standard library off gets HTTP/1.1, not a
+	// connection that offered h2 to the server and is then spoken to in HTTP/1.1
+	t.Setenv("GODEBUG", "http2client=0")
+	tr := DefaultTransport()
+	tr.TLSClientConfig.RootCAs = roots
+	resp, err := (&http.Client{Transport: tr}).Get(server.URL)
+	require.NoError(t, err, "HTTP/2 off")
+	body, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	require.NoError(t, err, "HTTP/2 off")
+	assert.Equal(t, "HTTP/1.1", string(body), "HTTP/2 off")
+	tr.CloseIdleConnections()
 }

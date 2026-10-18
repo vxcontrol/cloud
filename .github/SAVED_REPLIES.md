@@ -20,7 +20,7 @@ Thank you for reporting this issue! This has been resolved in a recent release. 
 
 If you continue experiencing problems after updating, please:
 1. Check your configuration against our documentation (README.md, API.md)
-2. Verify your Go version compatibility (Go 1.24.0+)
+2. Verify your Go version compatibility (Go 1.26.5+)
 3. Test with our working examples in the examples/ directory
 4. Include SDK version, license type, and relevant error logs
 ```

@@ -1,0 +1,8 @@
+version: "2"
+
+# The linters of golangci-lint's standard set: errcheck, govet, ineffassign, staticcheck, unused.
+linters:
+  exclusions:
+    # the error of a deferred Close or Flush, of os.Remove and of printing, as golangci-lint v1 left it out
+    presets:
+      - std-error-handling

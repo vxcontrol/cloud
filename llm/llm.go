@@ -350,7 +350,7 @@ func oneResult(reader *sse.Reader) ([]byte, error) {
 	for {
 		event, err := reader.Next()
 		switch {
-		case errors.Is(err, io.EOF):
+		case err == io.EOF:
 			if result == nil {
 				return nil, fmt.Errorf("%w: the answer ended without its result", sse.ErrMalformed)
 			}
@@ -397,7 +397,7 @@ func (b *streamBody) fill() error {
 		}
 		event, err := b.reader.Next()
 		switch {
-		case errors.Is(err, io.EOF):
+		case err == io.EOF:
 			b.pending, b.done = streamEnd, true
 		case err != nil:
 			return err

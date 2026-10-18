@@ -55,7 +55,7 @@ All contributions involving cloud services integration must align with authorize
 
 ### Prerequisites
 
-- Go 1.24.0 or later
+- Go 1.26.5 or later
 - Git
 - Linux, macOS, or Windows (for development)
 - Access to internet (for dependency downloads and testing)

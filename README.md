@@ -35,6 +35,8 @@ The VXControl Cloud SDK enables developers to integrate their security tools and
 go get github.com/vxcontrol/cloud/sdk
 ```
 
+The module requires Go 1.26.5 or later. Build with the latest patch release: the SDK speaks the HTTP/2 of the standard library, so its security fixes come with the toolchain.
+
 ### Basic Usage
 
 ```go

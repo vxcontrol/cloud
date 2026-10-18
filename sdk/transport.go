@@ -6,6 +6,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
@@ -18,13 +19,12 @@ import (
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/nacl/box"
-	"golang.org/x/net/http2"
 )
 
 const (
 	defaultScheme      = "https"
 	defaultTicketPath  = "/api/v1/ticket/"
-	sdkProtocolVersion = 1
+	sdkProtocolVersion = 2
 )
 
 const (
@@ -62,14 +62,18 @@ func DefaultTransport() *http.Transport {
 		ForceAttemptHTTP2:  true,  // enable HTTP/2
 		DisableCompression: false, // keep compression enabled
 		DisableKeepAlives:  false, // keep-alive is essential
+
+		// a TLS config of the transport's own: callers set their roots and verification on
+		// it, so it is never nil; its protocols are left to the standard library, which
+		// offers h2 only when it speaks HTTP/2 (not under GODEBUG=http2client=0)
+		TLSClientConfig: &tls.Config{},
 	}
 
-	// enable HTTP/2 support for better performance
-	err := http2.ConfigureTransport(transport)
-	if err != nil {
-		// HTTP/2 configuration failed, but HTTP/1.1 will still work
-		// in production, you might want to log this
-	}
+	// HTTP/1.1 and HTTP/2 over TLS, by the HTTP/2 of the standard library, which is
+	// patched with the toolchain
+	transport.Protocols = new(http.Protocols)
+	transport.Protocols.SetHTTP1(true)
+	transport.Protocols.SetHTTP2(true)
 
 	return transport
 }
@@ -139,7 +143,7 @@ func (c *callFunc) getTicket(cctx *callContext) (string, error) {
 		return "", parseServerError(resp.StatusCode, resp.Header, body)
 	}
 
-	decryptedBody, err := DecryptBytes(body, sessionKey, sessionIV)
+	decryptedBody, err := DecryptBytes(body, sessionKey, sessionIV, [16]byte{}, StreamLegacy)
 	if err != nil {
 		return "", fmt.Errorf("failed to decrypt ticket response: %w", err)
 	}
@@ -171,23 +175,41 @@ func (c *callFunc) solvePoW(cctx *callContext, ticket string) (*ticketData, erro
 	return td, nil
 }
 
-func (c *callFunc) createSignature(td *ticketData, contentLength int64) (string, error) {
-	// nonce[16] + randPadding[11] + version[1] + timestamp[8] + contentLength[8] + crc32[4]
+func requestSignatureHash(randomPadding []byte, method, requestURI string, nonce, installationID [16]byte) [4]byte {
+	data := make([]byte, 0, len(randomPadding)+len(method)+len(requestURI)+32)
+	data = append(data, randomPadding...)
+	data = append(data, method...)
+	data = append(data, requestURI...)
+	data = append(data, nonce[:]...)
+	data = append(data, installationID[:]...)
+
+	sum := sha256.Sum256(data)
+	var hash [4]byte
+	for i, b := range sum {
+		hash[i%4] ^= b
+	}
+	return hash
+}
+
+func (c *callFunc) createSignature(td *ticketData, method, requestURI string, contentLength int64) (string, error) {
+	// maskedNonce[16] + requestHash[4] + randPadding[7] + version[1] + timestamp[8] + contentLength[8] + crc32[4]
 	signData := make([]byte, 48)
 	copy(signData[0:16], td.Nonce[0:16])
 	xor(signData[0:16], c.sdk.installationID[0:16])
 
-	_, err := rand.Read(signData[16:27])
+	_, err := rand.Read(signData[20:27])
 	if err != nil {
 		return "", fmt.Errorf("failed to generate random padding: %w", err)
 	}
+	hash := requestSignatureHash(signData[20:27], method, requestURI, td.Nonce, c.sdk.installationID)
+	copy(signData[16:20], hash[:])
 	signData[27] = sdkProtocolVersion
 
 	binary.BigEndian.PutUint64(signData[28:36], uint64(time.Now().UTC().UnixMicro()))
 	binary.BigEndian.PutUint64(signData[36:44], uint64(contentLength))
 
-	hash := crc32.ChecksumIEEE(signData[16:44])
-	binary.BigEndian.PutUint32(signData[44:48], hash)
+	checksum := crc32.ChecksumIEEE(signData[16:44])
+	binary.BigEndian.PutUint32(signData[44:48], checksum)
 
 	sc, err := aes.NewCipher(td.Key[:])
 	if err != nil {
@@ -305,14 +327,14 @@ func (c *callFunc) invokeRequest(cctx *callContext) error {
 			return fmt.Errorf("failed to obtain request body: %w", bodyErr)
 		}
 
-		reqBody, err = EncryptStream(plaintext, td.Key, td.IV)
+		reqBody, err = EncryptStream(plaintext, td.Key, td.IV, [16]byte(td.RequestID), StreamRequest)
 		if err != nil {
 			return fmt.Errorf("failed to encrypt request body: %w", err)
 		}
 	}
 
 	// step 3: create signature
-	signature, err := c.createSignature(td, cctx.reqBodyLength)
+	signature, err := c.createSignature(td, cctx.reqMethod, cctx.reqCallURL.String(), cctx.reqBodyLength)
 	if err != nil {
 		return fmt.Errorf("failed to create signature: %w", err)
 	}
@@ -354,9 +376,9 @@ func (c *callFunc) invokeRequest(cctx *callContext) error {
 	if isSuccessStatus(cctx.respStatusCode) {
 		// response body should be closed after decryption
 		if cctx.respBodyWriter != nil {
-			err = DecryptProxy(resp.Body, cctx.respBodyWriter, td.Key, td.IV)
+			err = DecryptProxy(resp.Body, cctx.respBodyWriter, td.Key, td.IV, [16]byte(td.RequestID), StreamResponse)
 		} else {
-			cctx.respBodyReader, err = DecryptStream(resp.Body, td.Key, td.IV)
+			cctx.respBodyReader, err = DecryptStream(resp.Body, td.Key, td.IV, [16]byte(td.RequestID), StreamResponse)
 		}
 		if err != nil {
 			return fmt.Errorf("failed to decrypt response body: %w", err)

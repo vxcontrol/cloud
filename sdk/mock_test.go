@@ -1,9 +1,11 @@
 package sdk
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/subtle"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/binary"
@@ -16,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -118,11 +121,17 @@ func newTestSDK() sdk {
 
 // mockServer simulates real server middleware chain behavior
 type mockServer struct {
-	keys          *mockServerKeys
-	testData      *testData
-	ticketsByID   map[string]testTicket // RequestID -> ticket data
-	ticketsByName map[string]testTicket // name -> ticket data for /api/v1/ticket/{name}
-	licenses      map[[32]byte]bool
+	keys                  *mockServerKeys
+	testData              *testData
+	ticketsByID           map[string]testTicket // RequestID -> ticket data
+	ticketsByName         map[string]testTicket // name -> ticket data for /api/v1/ticket/{name}
+	licenses              map[[32]byte]bool
+	protectedEmptyBody    bool
+	protectedMissingFinal bool
+	legacyAPIResponse     bool
+	observationsMu        sync.Mutex
+	signVersions          []byte
+	echoLengths           []int64
 }
 
 type mockServerKeys struct {
@@ -348,7 +357,10 @@ func (ms *mockServer) validatePoWSignature(w http.ResponseWriter, r *http.Reques
 	scb.CryptBlocks(signData[16:48], signData[16:48])
 
 	version := signData[27]
-	if version != sdkProtocolVersion {
+	ms.observationsMu.Lock()
+	ms.signVersions = append(ms.signVersions, version)
+	ms.observationsMu.Unlock()
+	if version != 1 && version != sdkProtocolVersion {
 		ms.sendError(w, ErrInvalidSignature)
 		return false
 	}
@@ -357,6 +369,14 @@ func (ms *mockServer) validatePoWSignature(w http.ResponseWriter, r *http.Reques
 	if hash != crc32.ChecksumIEEE(signData[16:44]) {
 		ms.sendError(w, ErrInvalidSignature)
 		return false
+	}
+	if version == sdkProtocolVersion {
+		requestURI := defaultScheme + "://" + r.Host + r.URL.RequestURI()
+		expected := requestSignatureHash(signData[20:27], r.Method, requestURI, ticket.nonce, ticket.id)
+		if subtle.ConstantTimeCompare(signData[16:20], expected[:]) != 1 {
+			ms.sendError(w, ErrInvalidSignature)
+			return false
+		}
 	}
 
 	timestamp := time.UnixMicro(int64(binary.BigEndian.Uint64(signData[28:36])))
@@ -370,6 +390,18 @@ func (ms *mockServer) validatePoWSignature(w http.ResponseWriter, r *http.Reques
 	}
 
 	return true
+}
+
+func (ms *mockServer) signedVersions() []byte {
+	ms.observationsMu.Lock()
+	defer ms.observationsMu.Unlock()
+	return append([]byte(nil), ms.signVersions...)
+}
+
+func (ms *mockServer) echoContentLengths() []int64 {
+	ms.observationsMu.Lock()
+	defer ms.observationsMu.Unlock()
+	return append([]int64(nil), ms.echoLengths...)
 }
 
 func (ms *mockServer) sendResponse(w http.ResponseWriter, r *http.Request) {
@@ -415,23 +447,78 @@ func (ms *mockServer) sendResponse(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		} else {
-			bodyReader, err := DecryptStream(r.Body, ticket.key, generateIV(ticket.id))
-			if err != nil {
-				ms.sendError(w, ErrServerInternal)
-				return
-			}
-			defer bodyReader.Close()
+			ms.observationsMu.Lock()
+			ms.echoLengths = append(ms.echoLengths, r.ContentLength)
+			ms.observationsMu.Unlock()
+			if r.ContentLength == 0 {
+				responseData = ""
+			} else {
+				requestID, err := uuid.Parse(r.Header.Get(headerXRequestID))
+				if err != nil {
+					ms.sendError(w, ErrServerInternal)
+					return
+				}
+				bodyReader, err := DecryptStream(
+					r.Body, ticket.key, generateIV(ticket.id), [16]byte(requestID), StreamRequest)
+				if err != nil {
+					ms.sendError(w, ErrServerInternal)
+					return
+				}
+				defer bodyReader.Close()
 
-			body, err := io.ReadAll(bodyReader)
-			if err != nil {
-				ms.sendError(w, ErrServerInternal)
-				return
+				body, err := io.ReadAll(bodyReader)
+				if err != nil {
+					ms.sendError(w, ErrServerInternal)
+					return
+				}
+				responseData = string(body)
 			}
-			responseData = string(body)
 		}
 	}
 
+	if !ms.legacyAPIResponse {
+		ms.sendProtectedResponse(w, []byte(responseData), ticket, r.Header.Get(headerXRequestID))
+		return
+	}
+
 	ms.sendSuccess(w, []byte(responseData), ticket.key, generateIV(ticket.id))
+}
+
+func (ms *mockServer) sendProtectedResponse(w http.ResponseWriter, data []byte, ticket testTicket, requestIDHeader string) {
+	if ms.protectedEmptyBody {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	requestID, err := uuid.Parse(requestIDHeader)
+	if err != nil {
+		ms.sendError(w, ErrServerInternal)
+		return
+	}
+
+	encrypted, err := EncryptStream(
+		bytes.NewReader(data), ticket.key, generateIV(ticket.id), [16]byte(requestID), StreamResponse)
+	if err != nil {
+		ms.sendError(w, ErrServerInternal)
+		return
+	}
+	defer encrypted.Close()
+	body, err := io.ReadAll(encrypted)
+	if err != nil {
+		ms.sendError(w, ErrServerInternal)
+		return
+	}
+	if ms.protectedMissingFinal {
+		const finalFrameSize = 4 + 12 + 16 + 16
+		if len(body) < finalFrameSize {
+			ms.sendError(w, ErrServerInternal)
+			return
+		}
+		body = body[:len(body)-finalFrameSize]
+	}
+
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
 }
 
 func (ms *mockServer) sendError(w http.ResponseWriter, err error) {
@@ -473,12 +560,12 @@ func (ms *mockServer) sendError(w http.ResponseWriter, err error) {
 }
 
 func (ms *mockServer) sendSuccess(w http.ResponseWriter, data []byte, key, iv [16]byte) {
-	encryptedData, err := EncryptBytes(data, key, iv)
+	encryptedData, err := EncryptBytes(data, key, iv, [16]byte{}, StreamLegacy)
 	if err != nil {
 		ms.sendError(w, ErrServerInternal)
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
-	w.Write(encryptedData)
+	_, _ = w.Write(encryptedData) // a client that left is what the test sees, not this error
 }

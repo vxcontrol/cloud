@@ -24,7 +24,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          # the latest patch of the version go.mod requires: the security scan judges the
+          # standard library of the toolchain that builds, not the go line of go.mod
+          go-version: '1.26'
+          check-latest: true
           cache: true
           cache-dependency-path: go.sum
 
@@ -53,9 +56,10 @@ jobs:
         run: go vet ./...
 
       - name: Lint
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          # v2, configured by .golangci.yml; v1 cannot read a module of a newer Go than its own
+          version: v2.15.0
           args: --timeout=5m
         continue-on-error: true
 

@@ -266,8 +266,8 @@ func main() {
 			for _, release := range update.Releases {
 				logrus.Printf("    %s stable=%t", release.Version, release.IsStable)
 			}
-		} else if update.Changelog != nil {
-			logrus.Printf("  changelog: %s", *update.Changelog)
+		} else if update.Changelog != nil { //nolint:staticcheck // read on purpose: the answer of a server that predates Releases
+			logrus.Printf("  changelog: %s", *update.Changelog) //nolint:staticcheck // as above
 		}
 	}
 

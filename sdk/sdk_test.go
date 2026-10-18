@@ -710,6 +710,86 @@ func TestPathTemplates(t *testing.T) {
 	})
 }
 
+func TestSDK_Build_ConcurrentCallsKeepPathArguments(t *testing.T) {
+	ms := newMockServer()
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, defaultTicketPath) {
+			ms.handler(w, r)
+			return
+		}
+		if !ms.validateBasicHeaders(w, r) || !ms.validatePoWSignature(w, r) {
+			return
+		}
+		ticket := ms.ticketsByID[r.Header.Get(headerXRequestID)]
+		ms.sendProtectedResponse(w, []byte(r.URL.Path), ticket, r.Header.Get(headerXRequestID))
+	}))
+	defer server.Close()
+
+	ticket, exists := ms.ticketsByName["valid_success"]
+	if !exists {
+		t.Fatal("valid_success ticket not found in test data")
+	}
+	installationID, err := uuid.Parse(ticket.InstallationID)
+	if err != nil {
+		t.Fatalf("invalid installation ID: %v", err)
+	}
+
+	transport := DefaultTransport()
+	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	var call CallReqWithArgsRespBytes
+	err = Build([]CallConfig{{
+		Calls:  []any{&call},
+		Host:   strings.TrimPrefix(server.URL, "https://"),
+		Name:   "valid_success",
+		Path:   "/api/v1/call/args/:first/:second",
+		Method: CallMethodGET,
+	}}, withServerPublicKey(ms.getPublicKey()),
+		WithInstallationID([16]byte(installationID)),
+		WithTransport(transport), WithMaxRetries(1))
+	if err != nil {
+		t.Fatalf("Build failed: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	paths := []struct {
+		first  string
+		second string
+		want   string
+	}{
+		{"a", "1", "/api/v1/call/args/a/1"},
+		{"b", "2", "/api/v1/call/args/b/2"},
+		{"c", "3", "/api/v1/call/args/c/3"},
+		{"d", "4", "/api/v1/call/args/d/4"},
+		{"e", "5", "/api/v1/call/args/e/5"},
+		{"f", "6", "/api/v1/call/args/f/6"},
+		{"g", "7", "/api/v1/call/args/g/7"},
+		{"h", "8", "/api/v1/call/args/h/8"},
+	}
+	results := make(chan error, len(paths))
+	for _, path := range paths {
+		go func() {
+			for range 8 {
+				got, err := call(ctx, []string{path.first, path.second})
+				if err != nil {
+					results <- fmt.Errorf("calling %q: %w", path.want, err)
+					return
+				}
+				if string(got) != path.want {
+					results <- fmt.Errorf("got path %q, want %q", got, path.want)
+					return
+				}
+			}
+			results <- nil
+		}()
+	}
+	for range paths {
+		if err := <-results; err != nil {
+			t.Error(err)
+		}
+	}
+}
+
 func TestSDKOptions(t *testing.T) {
 	t.Run("all_options", func(t *testing.T) {
 		sdk := defaultSDK()

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"runtime"
@@ -24,11 +25,14 @@ import (
 const (
 	DefaultMaxRetries = 3
 	DefaultTimeout    = 60 * time.Second
+	issueWaitTimeout  = 5 * time.Minute
+	issuePollInterval = 5 * time.Second
 )
 
 type Client struct {
 	errorReport                sdk.CallReqBytesRespBytes
 	issueCreate                sdk.CallReqBytesRespBytes
+	issueStatus                sdk.CallReqWithArgsRespBytes
 	issueInvestigate           sdk.CallReqBytesRespBytes
 	issueInvestigateWithStream sdk.CallReqBytesRespReader
 	anonymizer                 anonymizer.Anonymizer
@@ -182,6 +186,10 @@ func (c *Client) InvestigateIssueWithStream(
 	if err != nil {
 		return "", fmt.Errorf("failed to read investigation stream: %w", err)
 	}
+	// The SSE done event precedes the authenticated end of the encrypted stream.
+	if _, err := io.Copy(io.Discard, stream); err != nil {
+		return "", fmt.Errorf("failed to verify investigation stream: %w", err)
+	}
 	fmt.Println("--- done ---")
 
 	return renderer.answer.String(), nil
@@ -238,6 +246,13 @@ func NewClient(serverHost, licenseKey, caPath string) (*Client, error) {
 			Name:   "support_issues",
 			Path:   "/api/v1/proxy/support/issues",
 			Method: sdk.CallMethodPOST,
+		},
+		{
+			Calls:  []any{&client.issueStatus},
+			Host:   serverHost,
+			Name:   "support_issue_status",
+			Path:   "/api/v1/proxy/support/issues/:issueID/status",
+			Method: sdk.CallMethodGET,
 		},
 		{
 			Calls:  []any{&client.issueInvestigate, &client.issueInvestigateWithStream},
@@ -415,25 +430,45 @@ func runIssueCreation(ctx context.Context, client *Client) uuid.UUID {
 	return issueID
 }
 
-// resolveIssueID returns issueID unchanged if it was supplied (a
-// previously-created issue is being continued), otherwise it creates a fresh
-// one so each investigation example also works as a self-contained demo.
+// resolveIssueID creates an issue if needed and waits for it to accept a turn.
 func resolveIssueID(ctx context.Context, client *Client, issueID uuid.UUID) (uuid.UUID, error) {
 	if issueID != uuid.Nil {
 		logrus.WithField("issue_id", issueID).Println("using existing issue")
-		return issueID, nil
+	} else {
+		var err error
+		issueID, err = client.CreateSupportIssue(
+			ctx, models.ComponentTypePentagi, getIssueDetails(), getComponentsLogs(),
+		)
+		if err != nil {
+			return uuid.Nil, fmt.Errorf("failed to create support issue: %w", err)
+		}
+		logrus.WithField("issue_id", issueID).Println("created issue")
 	}
 
-	issueID, err := client.CreateSupportIssue(
-		ctx, models.ComponentTypePentagi, getIssueDetails(), getComponentsLogs(),
-	)
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("failed to create support issue: %w", err)
+	ctx, cancel := context.WithTimeout(ctx, issueWaitTimeout)
+	defer cancel()
+
+	for {
+		data, err := client.issueStatus(ctx, []string{issueID.String()})
+		if err != nil {
+			return uuid.Nil, fmt.Errorf("failed to get support issue status: %w", err)
+		}
+		status, err := models.ParseEnvelope[models.SupportIssueStatusResponse](data)
+		if err != nil {
+			return uuid.Nil, fmt.Errorf("failed to parse support issue status: %w", err)
+		}
+		if err := status.Valid(); err != nil {
+			return uuid.Nil, fmt.Errorf("invalid support issue status: %w", err)
+		}
+		if status.Status == models.SupportIssueStatusProcessed {
+			return issueID, nil
+		}
+		select {
+		case <-ctx.Done():
+			return uuid.Nil, fmt.Errorf("waiting for support issue: %w", ctx.Err())
+		case <-time.After(issuePollInterval):
+		}
 	}
-
-	logrus.WithField("issue_id", issueID).Println("created issue")
-
-	return issueID, nil
 }
 
 func runInvestigation(ctx context.Context, client *Client, issueID uuid.UUID) {
@@ -445,8 +480,7 @@ func runInvestigation(ctx context.Context, client *Client, issueID uuid.UUID) {
 		return
 	}
 
-	// The call below blocks until the server has analyzed the issue and
-	// produced an answer — there is no separate polling step to wait for it.
+	// Log processing is complete; the call waits for the assistant's answer.
 	userInput := "The scanner works fine with other CVE patterns but consistently fails on these two specific ones. Could this be related to pattern complexity or memory constraints?"
 
 	answer, err := client.InvestigateIssue(ctx, issueID, userInput)
@@ -481,8 +515,7 @@ func runStreamInvestigation(ctx context.Context, client *Client, issueID uuid.UU
 		return
 	}
 
-	// Same blocking wait as the non-stream call, except the answer arrives
-	// incrementally as SSE events instead of as one JSON response.
+	// After log processing, the answer arrives incrementally as SSE events.
 	userInput := "Please provide a detailed analysis of the scanner performance issues and step-by-step troubleshooting guide."
 
 	// The renderer prints the answer live, token by token, as it streams in —

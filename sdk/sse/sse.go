@@ -11,9 +11,9 @@
 // the call, and ends with exactly one of "done" and "error". A reader hands its caller
 // "start" and the events of the call; the heartbeats it consumes, and "done" and
 // "error" it reports as the outcome of the reading. A stream is a complete
-// answer if and only if "done" arrived. "error" is a refusal of the server, with the
-// code a refusal answered before the response began would have carried. The end of the
-// body before either of them is a cut stream: what was read is not an answer, and the
+// answer only after "done" and a clean end of the body. "error" is a refusal of the
+// server, with the code a refusal before the response began would have carried. The
+// end of the body before either of them is a cut stream: what was read is not an answer, and the
 // request is not to be sent again on account of it — the server may have done the work.
 //
 // The package knows the four events of the stream itself and nothing of the events of a
@@ -43,7 +43,7 @@ const (
 const DefaultMaxEventSize = 8 << 20
 
 var (
-	// ErrStreamCut reports a body that ended, or failed, before "done" or "error".
+	// ErrStreamCut reports a body that ended before an outcome or failed before completion.
 	ErrStreamCut = errors.New("event stream was cut before it completed")
 	// ErrMalformed reports a frame that is not one event name with one JSON value.
 	ErrMalformed = errors.New("malformed event stream")
@@ -119,10 +119,10 @@ func NewReader(body io.Reader, classify Classifier, options ...Option) *Reader {
 }
 
 // Next returns the next event: "start" first, then the events of the call. Heartbeats
-// are consumed and not returned. It returns io.EOF once "done" has arrived and never
-// before; an *Error for an "error"
-// event; ErrStreamCut, wrapping the cause when there is one, for a body that ended or
-// failed first; ErrMalformed or ErrEventTooLarge for a frame it cannot accept. Once the
+// are consumed and not returned. It returns io.EOF after "done" and a clean end of the
+// body; an *Error for an "error" event; ErrStreamCut, wrapping the cause when there is
+// one, for a body that ended before an outcome or failed before completion;
+// ErrMalformed or ErrEventTooLarge for a frame it cannot accept. Once the
 // outcome is known every later call returns it again, and the body is not read further.
 func (r *Reader) Next() (Event, error) {
 	for r.err == nil {
@@ -133,7 +133,16 @@ func (r *Reader) Next() (Event, error) {
 		case event.Name == EventHeartbeat:
 			continue
 		case event.Name == EventDone:
-			r.err = io.EOF
+			// Reading through the buffer also verifies the transport's authenticated end.
+			_, err := r.body.ReadByte()
+			switch err {
+			case io.EOF:
+				r.err = io.EOF
+			case nil:
+				r.err = fmt.Errorf("%w: data after done", ErrMalformed)
+			default:
+				r.err = fmt.Errorf("%w: %w", ErrStreamCut, err)
+			}
 		case event.Name == EventError:
 			r.err = r.refusal(event.Data)
 		default:
@@ -149,7 +158,7 @@ func Read(body io.Reader, classify Classifier, handle func(Event) error, options
 	r := NewReader(body, classify, options...)
 	for {
 		event, err := r.Next()
-		if errors.Is(err, io.EOF) {
+		if err == io.EOF {
 			return nil
 		}
 		if err != nil {
