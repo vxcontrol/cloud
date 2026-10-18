@@ -14,15 +14,15 @@ on:
 jobs:
   test:
     name: Test and Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           # the latest patch of the version go.mod requires: the security scan judges the
           # standard library of the toolchain that builds, not the go line of go.mod
@@ -32,7 +32,7 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Cache Go modules
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/go-build
@@ -61,7 +61,6 @@ jobs:
           # v2, configured by .golangci.yml; v1 cannot read a module of a newer Go than its own
           version: v2.15.0
           args: --timeout=5m
-        continue-on-error: true
 
       - name: Unit tests
         run: go test ./... -v -race -coverprofile=coverage.out
@@ -93,10 +92,9 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
           echo "✓ Security scan completed"
-        continue-on-error: true
 
       - name: Upload coverage
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
-          file: ./coverage.out
+          files: ./coverage.out
           fail_ci_if_error: false
