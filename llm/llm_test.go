@@ -419,3 +419,80 @@ func TestClient_Do_KeepsTheBoundItKnowsWhenTheListCannotBeReadAgain(t *testing.T
 		t.Errorf("the list was asked for %d times: once read, once failed, then not again for a while", listed)
 	}
 }
+
+// stalling answers with the frames given and then nothing, as a connection that died
+// without a word; the test ends it.
+func stalling(t *testing.T, after string, heartbeats time.Duration, rest string) func(context.Context, []byte) (io.ReadCloser, error) {
+	return func(context.Context, []byte) (io.ReadCloser, error) {
+		reader, writer := io.Pipe()
+		t.Cleanup(func() { _ = writer.Close() })
+		go func() {
+			if _, err := io.WriteString(writer, after); err != nil {
+				return
+			}
+			for end := time.Now().Add(heartbeats); time.Now().Before(end); {
+				time.Sleep(20 * time.Millisecond)
+				if _, err := io.WriteString(writer, frames("heartbeat", `{"timestamp":1}`)); err != nil {
+					return
+				}
+			}
+			if rest != "" {
+				_, _ = io.WriteString(writer, rest)
+				_ = writer.Close()
+			}
+		}()
+		return reader, nil
+	}
+}
+
+// An answer that goes silent — the connection or the server gone without closing it — is
+// cut once it has been silent for the idle timeout, before its first chunk and between
+// two, streamed or not, and the read says why. One that keeps receiving heartbeats is
+// waited for however long it takes.
+func TestClient_Do_CutsAnAnswerThatGoesSilent(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		body   string
+		after  string
+		beats  time.Duration
+		rest   string
+		silent bool
+	}{
+		{name: "silent before the first chunk", body: `{"stream":true}`, after: frames("start", "{}"), silent: true},
+		{name: "silent before the result", body: `{}`, after: frames("start", "{}"), silent: true},
+		{name: "silent between two chunks", body: `{"stream":true}`, after: frames("start", "{}", "chunk", chunkA), silent: true},
+		{
+			name: "a long answer that keeps the heartbeats coming", body: `{"stream":true}`,
+			after: frames("start", "{}"), beats: 400 * time.Millisecond, rest: frames("chunk", chunkA, "done", "{}"),
+		},
+		{
+			name: "a long result that keeps the heartbeats coming", body: `{}`,
+			after: frames("start", "{}"), beats: 400 * time.Millisecond, rest: frames("result", result, "done", "{}"),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := NewFromCalls(Calls{ChatCompletions: stalling(t, tc.after, tc.beats, tc.rest)})
+			c.SetIdleTimeout(100 * time.Millisecond)
+
+			began := time.Now()
+			resp, err := post(t, c, "/chat/completions", tc.body)
+			if err == nil {
+				_, err = io.ReadAll(resp.Body)
+				_ = resp.Body.Close()
+			}
+
+			if !tc.silent {
+				if err != nil {
+					t.Fatalf("an answer that kept its heartbeats coming was cut: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, sse.ErrStreamCut) || !errors.Is(err, ErrStreamIdle) {
+				t.Fatalf("a silent answer ended with %v, not a cut that names the silence", err)
+			}
+			if elapsed := time.Since(began); elapsed > 3*time.Second {
+				t.Fatalf("a silent answer was cut after %v", elapsed)
+			}
+		})
+	}
+}

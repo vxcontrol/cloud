@@ -22,6 +22,11 @@
 // begun is never sent again: a stream that was cut is not an answer, and is not a reason
 // to send the request again — the model may have done the work. A refusal before the
 // answer that may pass (429, 502, 500) is tried again by the SDK, up to WithMaxRetries.
+//
+// The server sends a heartbeat every few seconds while it works, so an answer that goes
+// silent for DefaultIdleTimeout has lost its connection or its server: its body is closed
+// and the read fails with sse.ErrStreamCut and ErrStreamIdle, however long the answer was
+// taking. A caller needs no bound of its own on the duration of a healthy call.
 package llm
 
 import (
@@ -34,6 +39,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/vxcontrol/cloud/models"
@@ -48,6 +54,13 @@ const BaseURL = "https://pentagi-cloud.invalid/v1"
 // ErrUnsupported reports a request the Client does not serve: anything but a POST of a
 // chat completion or of embeddings.
 var ErrUnsupported = errors.New("llm: not a call of the OpenAI API this client serves")
+
+// ErrStreamIdle is the cause of a cut answer that went silent for the idle timeout.
+var ErrStreamIdle = errors.New("llm: the answer went silent")
+
+// DefaultIdleTimeout is how long an answer may go without a byte: many heartbeats of the
+// server, which sends one every 3 seconds.
+const DefaultIdleTimeout = 45 * time.Second
 
 // The calls of the API, by the name of their route and their path.
 const (
@@ -75,6 +88,7 @@ const batchesTTL = 5 * time.Minute
 // It is safe for concurrent use.
 type Client struct {
 	calls Calls
+	idle  atomic.Int64 // the idle timeout in nanoseconds; 0 is none
 
 	mu        sync.Mutex
 	batches   map[string]int // max_batch_size by agent of embeddings
@@ -98,7 +112,54 @@ func New(host string, options ...sdk.Option) (*Client, error) {
 
 // NewFromCalls returns a Client of calls made elsewhere: by tests and tools.
 func NewFromCalls(calls Calls) *Client {
-	return &Client{calls: calls}
+	c := &Client{calls: calls}
+	c.idle.Store(int64(DefaultIdleTimeout))
+	return c
+}
+
+// SetIdleTimeout changes how long an answer may go without a byte before it is cut;
+// 0 waits for ever.
+func (c *Client) SetIdleTimeout(timeout time.Duration) {
+	c.idle.Store(int64(max(timeout, 0)))
+}
+
+// watched cuts answer once it goes silent for the idle timeout of the Client.
+func (c *Client) watched(answer io.ReadCloser) io.ReadCloser {
+	timeout := time.Duration(c.idle.Load())
+	if timeout == 0 {
+		return answer
+	}
+	body := &idleBody{ReadCloser: answer, timeout: timeout}
+	body.timer = time.AfterFunc(timeout, func() {
+		body.silent.Store(true)
+		_ = answer.Close()
+	})
+	return body
+}
+
+// idleBody closes the answer under it when no byte of it arrives for timeout. Closing
+// is what ends a Read that waits on a connection that is gone.
+type idleBody struct {
+	io.ReadCloser
+	timeout time.Duration
+	timer   *time.Timer
+	silent  atomic.Bool
+}
+
+func (b *idleBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if n > 0 && !b.silent.Load() {
+		b.timer.Reset(b.timeout)
+	}
+	if err != nil && b.silent.Load() {
+		return n, ErrStreamIdle
+	}
+	return n, err
+}
+
+func (b *idleBody) Close() error {
+	b.timer.Stop()
+	return b.ReadCloser.Close()
 }
 
 // Models lists the agents the licence may name in `model`: the list object of the OpenAI
@@ -177,6 +238,7 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
+	answer = c.watched(answer)
 	reader := sse.NewReader(answer, sdk.ErrorFromCode)
 	if mode.Stream {
 		stream := &streamBody{reader: reader, body: answer}
@@ -196,11 +258,12 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 }
 
 // oneCall makes a call that is not streamed and returns its one result.
-func oneCall(ctx context.Context, call sdk.CallReqBytesRespReader, body []byte) ([]byte, error) {
+func (c *Client) oneCall(ctx context.Context, call sdk.CallReqBytesRespReader, body []byte) ([]byte, error) {
 	answer, err := call(ctx, body)
 	if err != nil {
 		return nil, err
 	}
+	answer = c.watched(answer)
 	defer answer.Close()
 	return oneResult(sse.NewReader(answer, sdk.ErrorFromCode))
 }
@@ -215,13 +278,13 @@ func (c *Client) embed(ctx context.Context, body []byte) ([]byte, error) {
 	var request map[string]json.RawMessage
 	var inputs []json.RawMessage
 	if json.Unmarshal(body, &request) != nil || json.Unmarshal(request["input"], &inputs) != nil {
-		return oneCall(ctx, c.calls.Embeddings, body)
+		return c.oneCall(ctx, c.calls.Embeddings, body)
 	}
 	var agent string
 	_ = json.Unmarshal(request["model"], &agent)
 	size := c.batchSize(ctx, agent)
 	if size < 1 || len(inputs) <= size {
-		return oneCall(ctx, c.calls.Embeddings, body)
+		return c.oneCall(ctx, c.calls.Embeddings, body)
 	}
 
 	var (
@@ -242,7 +305,7 @@ func (c *Client) embed(ctx context.Context, body []byte) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		answer, err := oneCall(ctx, c.calls.Embeddings, partBody)
+		answer, err := c.oneCall(ctx, c.calls.Embeddings, partBody)
 		if err != nil {
 			return nil, err
 		}
