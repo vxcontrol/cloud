@@ -30,7 +30,11 @@ const (
 func frames(events ...string) string {
 	var b strings.Builder
 	for i := 0; i+1 < len(events); i += 2 {
-		b.WriteString("event: " + events[i] + "\ndata: " + events[i+1] + "\n\n")
+		b.WriteString("event: ")
+		b.WriteString(events[i])
+		b.WriteString("\ndata: ")
+		b.WriteString(events[i+1])
+		b.WriteString("\n\n")
 	}
 	return b.String()
 }
