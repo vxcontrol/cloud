@@ -755,7 +755,8 @@ func TestAllCallTypes(t *testing.T) {
 		t.Fatalf("Build failed: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Every call solves its own PoW: the suite takes 20 s under -race on an idle machine.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
 	if err := callSuite.testCalls(ctx, testResponseData); err != nil {

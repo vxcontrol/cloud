@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"hash/crc32"
 	mrand "math/rand/v2"
 	"strings"
@@ -47,6 +48,30 @@ func (t *LicenseType) Scan(value any) error {
 
 var ErrInvalidLicence = errors.New("invalid license")
 
+// keyDateTolerance is how many days past the host's date (UTC) a key may be dated: the
+// issuer dates a key by its own clock, so a host whose clock is behind by less than a
+// day reads a key issued today as dated tomorrow.
+const keyDateTolerance = 1
+
+// LicenseDateError is a key dated more than a day past the host's date (UTC). The key
+// may be sound and the host clock behind. It matches ErrInvalidLicence, so a caller
+// that tells no reasons apart still refuses the key.
+type LicenseDateError struct {
+	CreatedAt time.Time // the creation date the key carries
+	HostDate  time.Time // the host's date (UTC) when the key was read
+}
+
+func (e *LicenseDateError) Error() string {
+	return fmt.Sprintf("%s: the key is dated %s, after the host's date %s: check the host clock",
+		ErrInvalidLicence, e.CreatedAt.Format(time.DateOnly), e.HostDate.Format(time.DateOnly))
+}
+
+func (e *LicenseDateError) Unwrap() error { return ErrInvalidLicence }
+
+func hostDate() time.Time {
+	return alignDays(hostClock().UTC())
+}
+
 type LicenseInfo struct {
 	Type      LicenseType // license type (expireable or perpetual)
 	Flags     [7]bool     // permission flags, by LicenseFlag
@@ -64,6 +89,10 @@ const (
 	LicenseFlagUpdates                          // update checks and the download of the installer
 	LicenseFlagKnowledgeBase                    // the knowledge base through the API
 	LicenseFlagCloudLLM                         // the language models of the PentAGI Cloud API
+	// LicenseFlagOffline is the last flag a key holds, after two that no key carries: the
+	// installation may also be given its license module by hand, where it does not reach
+	// the PentAGI Cloud API.
+	LicenseFlagOffline LicenseFlag = 6
 )
 
 // Allows reports whether the key carries the permission flag.
@@ -74,11 +103,11 @@ func (l *LicenseInfo) Allows(flag LicenseFlag) bool {
 func (l *LicenseInfo) IsValid() bool {
 	return ((l.Type == LicenseExpireable && !l.ExpiredAt.IsZero() && !l.IsExpired()) ||
 		(l.Type == LicensePerpetual && l.ExpiredAt.IsZero())) &&
-		!l.CreatedAt.IsZero() && !l.CreatedAt.After(alignDays(time.Now().UTC()))
+		!l.CreatedAt.IsZero() && !l.CreatedAt.After(hostDate().AddDate(0, 0, keyDateTolerance))
 }
 
 func (l *LicenseInfo) IsExpired() bool {
-	return l.Type == LicenseExpireable && l.ExpiredAt.Before(alignDays(time.Now().UTC()))
+	return l.Type == LicenseExpireable && l.ExpiredAt.Before(hostDate())
 }
 
 type licenseData struct {
@@ -222,9 +251,7 @@ func (l *licenseData) restore(data [10]byte) error {
 	createdAt := binary.BigEndian.Uint16(l.data[8:10])
 	salt := extractSalt(id, flags)
 
-	if err := l.decodeCreatedAt(salt, createdAt); err != nil {
-		return err
-	}
+	l.decodeCreatedAt(salt, createdAt)
 
 	for range encodeDays(l.CreatedAt) {
 		l.baseConst = lcg.Uint64()
@@ -237,21 +264,20 @@ func (l *licenseData) restore(data [10]byte) error {
 		return err
 	}
 
+	// last: the date error tells the caller the key itself decoded
+	if today := hostDate(); l.CreatedAt.After(today.AddDate(0, 0, keyDateTolerance)) {
+		return &LicenseDateError{CreatedAt: l.CreatedAt, HostDate: today}
+	}
+
 	return nil
 }
 
-func (l *licenseData) decodeCreatedAt(salt, days uint16) error {
+func (l *licenseData) decodeCreatedAt(salt, days uint16) {
 	days &= mask12
 	days ^= l.seed & mask12
 	days ^= uint16(getConstXOR(0, constXorShiftCreatedAt, constXorMaskCreatedAt))
 	days ^= salt
 	l.CreatedAt = decodeDays(days)
-
-	if now := alignDays(time.Now().UTC()); l.CreatedAt.After(now) {
-		return ErrInvalidLicence
-	}
-
-	return nil
 }
 
 func (l *licenseData) decodeExpiredAt(salt, days uint16) error {

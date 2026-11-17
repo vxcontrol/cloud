@@ -120,14 +120,13 @@
 //
 //	// Automatic PoW solving process:
 //	// 1. Request challenge ticket from server
-//	// 2. Solve memory-hard puzzle (12-1024KB, variable AES iterations)
+//	// 2. Solve memory-hard puzzle (parameters set by the ticket)
 //	// 3. Include PoW signature with every API request
 //	// 4. Server validates signature before processing
 //
 // PoW Algorithm Features:
 //   - Memory-hard algorithm designed for GPU and FPGA resistance
-//   - Dynamic difficulty scaling based on server load and license tier
-//   - Variable parameters prevent hardware optimization (millions of combinations)
+//   - Parameters vary per ticket, which prevents hardware optimization
 //   - Configurable timeout support for different hardware capabilities
 //
 // ## Cryptographic Protection
@@ -308,11 +307,16 @@
 //
 // Fatal Errors (no retry):
 //   - ErrBadRequest: Invalid request format or parameters
-//   - ErrForbidden: Invalid license or insufficient permissions
-//   - ErrNotFound: Unknown endpoint or resource
+//   - ErrForbidden: Invalid license, a license the endpoint does not serve, or an
+//     unknown endpoint, Name, path or method
+//   - ErrNotFound: A named resource that does not exist, or a host the endpoint is
+//     not served on
+//   - ErrBlocked: The client is temporarily blocked
 //   - ErrTooManyRequestsRPH/RPD: Long-term rate limits exceeded
 //   - ErrInvalidSignature: Cryptographic validation failure
 //   - ErrReplayAttack: Security violation detected
+//   - ErrRequestClockSkew: The host clock is outside the window the server accepts;
+//     *ClockSkewError carries the server's time and the skew
 //
 // ## Event Streams
 //
@@ -541,6 +545,10 @@
 //	if licenseInfo.Flags[0] {
 //	    fmt.Println("Premium feature enabled")
 //	}
+//
+// A key dated up to a day past the host's date (UTC) is taken, since the issuer dates
+// it by its own clock. A later date is a *LicenseDateError carrying both dates: the
+// host clock is behind, and the key may be sound. It matches ErrInvalidLicence too.
 //
 // ## License Encoding
 //

@@ -1,6 +1,8 @@
 package models
 
 import (
+	"crypto/sha512"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -464,6 +466,43 @@ func TestCheckUpdatesResponseSurvivesARoundTrip(t *testing.T) {
 	}
 }
 
+// TestTheReleasesOfAnAnswerAscendAsTheServerOrdersThem pins the order of the releases
+// with the verdicts of the server, which pins the same table: a client reads the last
+// entry as the target.
+func TestTheReleasesOfAnAnswerAscendAsTheServerOrdersThem(t *testing.T) {
+	for name, tc := range map[string]struct {
+		versions []string
+		valid    bool
+	}{
+		"ascending":                                  {[]string{"2.0.5", "2.1.0", "2.2.0"}, true},
+		"descending in the middle":                   {[]string{"2.0.0", "2.2.0", "2.1.0"}, false},
+		"by number":                                  {[]string{"9.0.0", "10.0.0"}, true},
+		"by text":                                    {[]string{"10.0.0", "9.0.0"}, false},
+		"a branch build, then the release of it":     {[]string{"2.1.0-87ac00f", "2.1.0"}, true},
+		"a release, then a branch build of it":       {[]string{"2.1.0", "2.1.0-87ac00f"}, false},
+		"an edition branch build, then a release":    {[]string{"2.1.0-ce.h87ac00f", "2.1.0-ee"}, true},
+		"an edition release, then a branch build":    {[]string{"2.1.0-ee", "2.1.0-ee.h87ac00f"}, false},
+		"branch builds of one core in any order":     {[]string{"2.1.0-fe12345", "2.1.0-87ac00f", "2.1.0-fe12345"}, true},
+		"an edition marker alone is not a revision":  {[]string{"2.1.0-ce", "2.1.0", "2.1.0-ee"}, true},
+		"a missing patch is 0":                       {[]string{"2.1.0", "2.1"}, true},
+		"a missing patch, after a patch":             {[]string{"2.1.1", "2.1"}, false},
+		"latest before a version":                    {[]string{"latest", "2.0.0"}, true},
+		"latest after a version":                     {[]string{"2.0.0", "latest"}, false},
+		"the largest core number":                    {[]string{"1.0.0", "18446744073709551615.0.0"}, true},
+		"a core number past it, which does not read": {[]string{"1.0.0", "18446744073709551616.0.0"}, false},
+	} {
+		info := UpdateInfo{Stack: ProductStackPentagi}
+		for _, version := range tc.versions {
+			info.Releases = append(info.Releases, ReleaseNote{Version: version})
+		}
+		if err := info.Valid(); tc.valid && err != nil {
+			t.Errorf("%s is refused: %v", name, err)
+		} else if !tc.valid && err == nil {
+			t.Errorf("%s passes", name)
+		}
+	}
+}
+
 // TestTheAnswerVocabulariesAreSpelledTheSameOnBothSides.
 //
 // The golden forms pin the fields; they cannot pin the VALUES, because one
@@ -732,6 +771,29 @@ func TestRequestValidationMatchesTheServerRules(t *testing.T) {
 				MaxReportedComponents, MaxReportedComponents)
 		}
 	})
+
+	// The server pins the same documents in the form it receives them.
+	t.Run("info is measured as json.Marshal writes it", func(t *testing.T) {
+		for name, tc := range map[string]struct {
+			info  string
+			valid bool
+		}{
+			"3008 bytes held, 18008 written":  {`{"d":"` + strings.Repeat("<", 3000) + `"}`, false},
+			"2884 bytes held, 16384 written":  {`{"d":"` + strings.Repeat("<", 2700) + strings.Repeat("a", 176) + `"}`, true},
+			"2885 bytes held, 16385 written":  {`{"d":"` + strings.Repeat("<", 2700) + strings.Repeat("a", 177) + `"}`, false},
+			"16389 bytes held, 16384 written": {"{\n  \"d\": \"" + strings.Repeat("a", 16376) + "\"\n}", true},
+			"a document that is not JSON":     {`{"d":`, false},
+			"no document":                     {``, true},
+		} {
+			request := base()
+			request.Info = json.RawMessage(tc.info)
+			if err := request.Valid(); tc.valid && err != nil {
+				t.Errorf("%s is refused: %v", name, err)
+			} else if !tc.valid && err == nil {
+				t.Errorf("%s passes", name)
+			}
+		}
+	})
 }
 
 func TestEveryComponentBelongsToAStack(t *testing.T) {
@@ -874,6 +936,13 @@ func TestProductUpdateResponseMatchesTheGoldenWireForm(t *testing.T) {
 	if !answer.Identified {
 		t.Error("the golden answer identifies the running build")
 	}
+
+	// a version is absent or a version, never present and empty: the server pins the same
+	empty := ""
+	answer.Version = &empty
+	if answer.Valid() == nil {
+		t.Error("an answer whose version is present and empty passes")
+	}
 }
 
 // TestAnUnidentifiedBuildStillDecodes.
@@ -991,8 +1060,9 @@ func TestProductUpdateRequestMatchesTheGoldenWireForm(t *testing.T) {
 	}
 }
 
-// The bound belongs to the contract, not to whoever happens to send the request:
-// the endpoint reads the body with no size limit of its own.
+// The bound belongs to the contract, so a sender learns of it before the request
+// leaves. It is on the document as json.Marshal writes it into the request; the
+// server pins the same documents as it receives them.
 func TestProductUpdateRequestRejectsAnOversizedDocument(t *testing.T) {
 	oversized := ProductUpdateRequest{
 		Schema:  1,
@@ -1009,6 +1079,24 @@ func TestProductUpdateRequestRejectsAnOversizedDocument(t *testing.T) {
 	fits.Info = json.RawMessage(`{"schema":1}`)
 	if err := fits.Valid(); err != nil {
 		t.Fatalf("an ordinary document must validate: %v", err)
+	}
+
+	for name, tc := range map[string]struct {
+		info  string
+		valid bool
+	}{
+		"3008 bytes held, 18008 written":  {`{"d":"` + strings.Repeat("<", 3000) + `"}`, false},
+		"2884 bytes held, 16384 written":  {`{"d":"` + strings.Repeat("<", 2700) + strings.Repeat("a", 176) + `"}`, true},
+		"2885 bytes held, 16385 written":  {`{"d":"` + strings.Repeat("<", 2700) + strings.Repeat("a", 177) + `"}`, false},
+		"16389 bytes held, 16384 written": {"{\n  \"d\": \"" + strings.Repeat("a", 16376) + "\"\n}", true},
+	} {
+		request := fits
+		request.Info = json.RawMessage(tc.info)
+		if err := request.Valid(); tc.valid && err != nil {
+			t.Errorf("%s is refused: %v", name, err)
+		} else if !tc.valid && err == nil {
+			t.Errorf("%s passes", name)
+		}
 	}
 }
 
@@ -1337,6 +1425,122 @@ func TestLicenseStatusRefusesWhatIsNotAStatus(t *testing.T) {
 		breaks(&s)
 		if s.Valid() == nil {
 			t.Errorf("a status with %s passes", name)
+		}
+	}
+}
+
+// goldenLicenseModuleInfo are the two forms of the description of a license module, byte
+// for byte: with a module served, and before one is. The server pins the same literals: if
+// you change one, change the other. retry_after_seconds is written when it is 0 and nothing
+// else is written before a module is served: a field the server drops or adds there
+// changes what the client reads as "ask again later".
+var goldenLicenseModuleInfo = []struct {
+	data  string
+	value func() LicenseModuleInfo
+}{
+	{`{"ready":true,"module_id":"9f86d081884c7d659a2feaa0c55ad015","built_at":"2026-11-04T09:30:00Z","refresh_by":"2026-12-04T09:30:00Z","size":5579009,"hash":"4867c051097fca37bdc60f5f0669a694f31032c3ff4419f02b51ce187e9cc1d8","signature":"/qVFpJ8CTXgF4DZmsIsztDiLg7Wdr2OUolaWnNCBGB7CP8XHq7Mb9t8wo4vOU9tC3iiPKMaDiz1wN04KfyJxCw","retry_after_seconds":0}`, func() LicenseModuleInfo {
+		built := time.Date(2026, 11, 4, 9, 30, 0, 0, time.UTC)
+		refresh := time.Date(2026, 12, 4, 9, 30, 0, 0, time.UTC)
+		return LicenseModuleInfo{
+			Ready:     true,
+			ModuleID:  "9f86d081884c7d659a2feaa0c55ad015",
+			BuiltAt:   &built,
+			RefreshBy: &refresh,
+			Size:      5579009,
+			Hash:      "4867c051097fca37bdc60f5f0669a694f31032c3ff4419f02b51ce187e9cc1d8",
+			Signature: "/qVFpJ8CTXgF4DZmsIsztDiLg7Wdr2OUolaWnNCBGB7CP8XHq7Mb9t8wo4vOU9tC3iiPKMaDiz1wN04KfyJxCw",
+		}
+	}},
+	{`{"ready":false,"retry_after_seconds":300}`, func() LicenseModuleInfo {
+		return LicenseModuleInfo{RetryAfterSeconds: 300}
+	}},
+}
+
+// TestLicenseModuleInfoParsesTheGoldenWireForms proves this package reads every field of the
+// description of a license module and writes the same bytes back. A field renamed on one
+// side only would reach the installation as a module that is never ready, or as a download
+// it cannot verify.
+func TestLicenseModuleInfoParsesTheGoldenWireForms(t *testing.T) {
+	for _, golden := range goldenLicenseModuleInfo {
+		decoder := json.NewDecoder(strings.NewReader(golden.data))
+		decoder.DisallowUnknownFields()
+		var info LicenseModuleInfo
+		if err := decoder.Decode(&info); err != nil {
+			t.Fatalf("%s does not parse: %v", golden.data, err)
+		}
+		if err := info.Valid(); err != nil {
+			t.Errorf("%s is not valid: %v", golden.data, err)
+		}
+		if want := golden.value(); !reflect.DeepEqual(info, want) {
+			t.Errorf("%s reads as %+v, want %+v", golden.data, info, want)
+		}
+
+		written, err := json.Marshal(golden.value())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(written) != golden.data {
+			t.Errorf("the description is written as\n  %s\nwant\n  %s", written, golden.data)
+		}
+	}
+}
+
+// TestLicenseModuleInfoRefusesWhatIsNotADescription proves a description is taken only in its
+// own shape. Everything a download is verified against comes from it, so a description that
+// cannot describe a module the API serves is refused before anything is downloaded; a body of
+// another shape decodes into a module not ready with no time to wait, and is refused too.
+func TestLicenseModuleInfoRefusesWhatIsNotADescription(t *testing.T) {
+	ready := func() LicenseModuleInfo { return goldenLicenseModuleInfo[0].value() }
+
+	for name, accepted := range map[string]func(*LicenseModuleInfo){
+		"a module served":           func(*LicenseModuleInfo) {},
+		"a module of one byte":      func(i *LicenseModuleInfo) { i.Size = 1 },
+		"a module of 40 MiB":        func(i *LicenseModuleInfo) { i.Size = 41943040 },
+		"no module yet":             func(i *LicenseModuleInfo) { *i = LicenseModuleInfo{RetryAfterSeconds: 1} },
+		"a module without its time": func(i *LicenseModuleInfo) { i.BuiltAt, i.RefreshBy = nil, nil },
+	} {
+		info := ready()
+		accepted(&info)
+		if err := info.Valid(); err != nil {
+			t.Errorf("%s is refused: %v", name, err)
+		}
+	}
+
+	for name, broken := range map[string]func(*LicenseModuleInfo){
+		"a module ID of 31 digits":        func(i *LicenseModuleInfo) { i.ModuleID = i.ModuleID[1:] },
+		"a module ID of 33 digits":        func(i *LicenseModuleInfo) { i.ModuleID += "0" },
+		"a module ID in upper case":       func(i *LicenseModuleInfo) { i.ModuleID = strings.ToUpper(i.ModuleID) },
+		"a module ID that is not hex":     func(i *LicenseModuleInfo) { i.ModuleID = "g" + i.ModuleID[1:] },
+		"no module ID":                    func(i *LicenseModuleInfo) { i.ModuleID = "" },
+		"an empty module":                 func(i *LicenseModuleInfo) { i.Size = 0 },
+		"a module of 40 MiB and one byte": func(i *LicenseModuleInfo) { i.Size = 41943041 },
+		"a module of a negative size":     func(i *LicenseModuleInfo) { i.Size = -1 },
+		"a hash of 63 digits":             func(i *LicenseModuleInfo) { i.Hash = i.Hash[1:] },
+		"a hash in upper case":            func(i *LicenseModuleInfo) { i.Hash = strings.ToUpper(i.Hash) },
+		"no hash":                         func(i *LicenseModuleInfo) { i.Hash = "" },
+		"no signature":                    func(i *LicenseModuleInfo) { i.Signature = "" },
+		"a signature that is not base64":  func(i *LicenseModuleInfo) { i.Signature = "!" + i.Signature[1:] },
+		"a signature of 63 bytes":         func(i *LicenseModuleInfo) { i.Signature = i.Signature[:84] },
+		"no module and no time to wait":   func(i *LicenseModuleInfo) { *i = LicenseModuleInfo{} },
+		"no module and a negative wait":   func(i *LicenseModuleInfo) { *i = LicenseModuleInfo{RetryAfterSeconds: -1} },
+	} {
+		info := ready()
+		broken(&info)
+		if info.Valid() == nil {
+			t.Errorf("a description with %s passes", name)
+		}
+	}
+
+	for name, body := range map[string]string{
+		"an empty object":                         `{}`,
+		"the envelope decoded as the description": `{"status":"success","data":` + goldenLicenseModuleInfo[0].data + `}`,
+	} {
+		var read LicenseModuleInfo
+		if err := json.Unmarshal([]byte(body), &read); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if read.Valid() == nil {
+			t.Errorf("%s passes as %+v", name, read)
 		}
 	}
 }
@@ -1919,7 +2123,8 @@ func TestSupportIssueDetailsMatchTheGoldenWireForm(t *testing.T) {
 // TestTheLimitsOfAnIssueAreTheServers pins the limits of an issue as literals, as the
 // server does: the two sides share no code, and a limit changed on one side only would
 // have a sender believe a body is allowed that the server refuses with an error of its
-// own. error_details is checked in the form a sender passes it, bytes already written.
+// own. error_details is checked in the form a sender passes it, bytes already written, and
+// measured as the server measures their value.
 func TestTheLimitsOfAnIssueAreTheServers(t *testing.T) {
 	for name, limit := range map[string]struct{ got, want int }{
 		"MaxSupportIssueRequestBytes": {MaxSupportIssueRequestBytes, 2097152},
@@ -1951,10 +2156,21 @@ func TestTheLimitsOfAnIssueAreTheServers(t *testing.T) {
 	html := func(size int) json.RawMessage {
 		return json.RawMessage(`{"d":"` + strings.Repeat("<", size-8) + `"}`)
 	}
+	// [1e20,…,"…"] is five bytes a number and four around the text: a number counts as it
+	// is written, not as the 21 bytes of its float64
+	exponents := func(size int) json.RawMessage {
+		return json.RawMessage(`[` + strings.Repeat("1e20,", 52000) + `"` + strings.Repeat("a", size-260004) + `"]`)
+	}
+	// a raw U+2028 is three bytes as the sender holds it and six as its value is written
+	separators := func(size int) json.RawMessage {
+		return json.RawMessage(`{"d":"` + strings.Repeat(" ", 1000) + strings.Repeat("a", size-6008) + `"}`)
+	}
 
 	for name, issue := range map[string]SupportIssueRequest{
-		"2000 lines over two components":           request([2]int{1000, 1000}, small),
-		"error_details of exactly the limit, HTML": request([2]int{1, 0}, html(MaxSupportIssueDetailsBytes)),
+		"2000 lines over two components":                request([2]int{1000, 1000}, small),
+		"error_details of exactly the limit, HTML":      request([2]int{1, 0}, html(MaxSupportIssueDetailsBytes)),
+		"error_details of exactly the limit, exponents": request([2]int{1, 0}, exponents(MaxSupportIssueDetailsBytes)),
+		"error_details of exactly the limit, U+2028":    request([2]int{1, 0}, separators(MaxSupportIssueDetailsBytes)),
 	} {
 		if err := issue.Valid(); err != nil {
 			t.Errorf("%s is refused: %v", name, err)
@@ -1962,12 +2178,29 @@ func TestTheLimitsOfAnIssueAreTheServers(t *testing.T) {
 	}
 	for name, issue := range map[string]SupportIssueRequest{
 		// neither component is past the limit: only their sum is
-		"2001 lines over two components":      request([2]int{1000, 1001}, small),
-		"error_details a byte past the limit": request([2]int{1, 0}, html(MaxSupportIssueDetailsBytes+1)),
-		"error_details that is not JSON":      request([2]int{1, 0}, json.RawMessage(`{"schema":`)),
+		"2001 lines over two components":                 request([2]int{1000, 1001}, small),
+		"error_details a byte past the limit":            request([2]int{1, 0}, html(MaxSupportIssueDetailsBytes+1)),
+		"error_details a byte past the limit, exponents": request([2]int{1, 0}, exponents(MaxSupportIssueDetailsBytes+1)),
+		"error_details a byte past the limit, U+2028":    request([2]int{1, 0}, separators(MaxSupportIssueDetailsBytes+1)),
+		"error_details that is not JSON":                 request([2]int{1, 0}, json.RawMessage(`{"schema":`)),
 	} {
 		if issue.Valid() == nil {
 			t.Errorf("%s passes", name)
+		}
+	}
+}
+
+// TestLicenseModuleDigestMatchesTheServersVectors pins the digest a module's signature
+// covers. The server pins the same two vectors: a digest computed otherwise on one side
+// refuses every module at every installation.
+func TestLicenseModuleDigestMatchesTheServersVectors(t *testing.T) {
+	for _, vector := range []struct{ module, want string }{
+		{"", "8510595e7bea13d3310d481a993bbae3cd5b464d3cb9be8b24a076571cc1599a9204ba65c6cc126354bcb15eb0554df7d6b30eeb5cb34572995866c6150298a1"},
+		{"module", "ce62c525cd3c44a5ead73f802f55e03b4fcac8d98905e32092310eb651931f7b2a9d4c30054eda3491be58b064a641c018a4a55c7caf59e25757518325a71f5e"},
+	} {
+		sum := sha512.Sum512([]byte(vector.module))
+		if got := hex.EncodeToString(LicenseModuleDigest(sum[:])); got != vector.want {
+			t.Errorf("the digest of %q is %s, want %s", vector.module, got, vector.want)
 		}
 	}
 }

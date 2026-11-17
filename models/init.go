@@ -79,10 +79,9 @@ func templateValidatorString(regexpString string) validator.Func {
 // fileComponentValidator backs the `filecomp` tag: the field names a component
 // a file is published for — ArtifactKindFile, and ArtifactKindFileImage.
 //
-// It reads the static table in artefacts.go instead of an `oneof=` list. The
-// hand-written copies of that list — one here, three on the service side — had
-// already drifted into three different answers, and this one was the narrowest:
-// it refused downloads the service would have served.
+// It reads the static table in artefacts.go instead of an `oneof=` list: a
+// hand-written list drifts from the table, and a narrower one refuses downloads
+// the service serves.
 //
 // A nil pointer passes: presence is `required`'s business, not this tag's.
 func fileComponentValidator() validator.Func {

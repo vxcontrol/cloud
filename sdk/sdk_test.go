@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -790,6 +791,25 @@ func TestSDK_Build_ConcurrentCallsKeepPathArguments(t *testing.T) {
 	}
 }
 
+func TestSDK_MaxRetriesOf_IsTheCountOfWithMaxRetries(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		options []Option
+		want    int
+	}{
+		{"no option", nil, 3},
+		{"other options", []Option{WithPowTimeout(time.Second), WithHeaders(map[string]string{"X-Test": "1"})}, 3},
+		{"one", []Option{WithMaxRetries(1)}, 1},
+		{"five", []Option{WithMaxRetries(5)}, 5},
+		{"zero is one", []Option{WithMaxRetries(0)}, 1},
+		{"the last one counts", []Option{WithMaxRetries(5), WithMaxRetries(2)}, 2},
+	} {
+		if got := MaxRetriesOf(tc.options...); got != tc.want {
+			t.Errorf("%s: %d, want %d", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestSDKOptions(t *testing.T) {
 	t.Run("all_options", func(t *testing.T) {
 		sdk := defaultSDK()
@@ -882,6 +902,7 @@ func TestErrorFromCode_GivesTheErrorOfARefusalAnsweredBeforeTheResponse(t *testi
 		"QuotaBlocked":         ErrQuotaBlocked,
 		"QuotaExceededDaily":   ErrQuotaExceededDaily,
 		"QuotaExceededMonthly": ErrQuotaExceededMonthly,
+		"RequestClockSkew":     ErrRequestClockSkew,
 		"SomethingNewer":       ErrRequestFailed,
 	}
 	for code, want := range codes {
@@ -912,5 +933,179 @@ func TestErrorFromCode_GivesTheErrorOfARefusalAnsweredBeforeTheResponse(t *testi
 	unknown := ErrorFromCode("SomethingNewer", time.Second)
 	if !errors.Is(unknown, ErrRequestFailed) || isTemporaryError(unknown) {
 		t.Errorf("an unknown code: got %v, temporary %v", unknown, isTemporaryError(unknown))
+	}
+}
+
+func TestSDK_Call_MapsRequestClockSkewToItsOwnError(t *testing.T) {
+	hostTime := time.Date(2026, 11, 10, 10, 0, 0, 0, time.UTC)
+
+	for _, tc := range []struct {
+		name        string
+		atTicket    bool
+		serverTime  string
+		wantServer  time.Time
+		wantSkew    time.Duration
+		wantMessage string
+	}{
+		{
+			name:        "a host behind is refused at the ticket",
+			atTicket:    true,
+			serverTime:  "2026-11-11T06:00:00.250Z",
+			wantServer:  time.Date(2026, 11, 11, 6, 0, 0, 250_000_000, time.UTC),
+			wantSkew:    -(20*time.Hour + 250*time.Millisecond),
+			wantMessage: "request time outside the accepted window: the host clock is 20h0m0s behind the server",
+		},
+		{
+			name:        "a host ahead is refused at the call",
+			serverTime:  "2026-11-09T21:00:00.000Z",
+			wantServer:  time.Date(2026, 11, 9, 21, 0, 0, 0, time.UTC),
+			wantSkew:    13 * time.Hour,
+			wantMessage: "request time outside the accepted window: the host clock is 13h0m0s ahead of the server",
+		},
+		{
+			name:        "a refusal without the server time",
+			atTicket:    true,
+			wantMessage: "request time outside the accepted window",
+		},
+		{
+			name:        "a server time that is not RFC 3339",
+			serverTime:  "Tue, 10 Nov 2026 10:00:00 GMT",
+			wantMessage: "request time outside the accepted window",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fixHostClock(t, hostTime)
+			mockSrv := newMockServer()
+
+			var tickets, calls atomic.Int32
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				atTicket := strings.HasPrefix(r.URL.Path, defaultTicketPath)
+				if atTicket {
+					tickets.Add(1)
+				} else {
+					calls.Add(1)
+				}
+				if atTicket && !tc.atTicket {
+					mockSrv.handler(w, r)
+					return
+				}
+				if tc.serverTime != "" {
+					w.Header().Set("X-Server-Time", tc.serverTime)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"status":"error","code":"RequestClockSkew"}`))
+			}))
+			defer server.Close()
+
+			installationID, err := uuid.Parse(mockSrv.ticketsByName["valid_success"].InstallationID)
+			if err != nil {
+				t.Fatalf("invalid InstallationID: %v", err)
+			}
+
+			var call CallReqRespBytes
+			transport := DefaultTransport()
+			transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+			err = Build([]CallConfig{{
+				Calls:  []any{&call},
+				Host:   strings.TrimPrefix(server.URL, "https://"),
+				Name:   "valid_success",
+				Path:   "/api/v1/license/sync",
+				Method: CallMethodGET,
+			}},
+				withServerPublicKey(mockSrv.getPublicKey()),
+				WithInstallationID([16]byte(installationID)),
+				WithPowTimeout(2*time.Second),
+				WithMaxRetries(3),
+				WithTransport(transport))
+			if err != nil {
+				t.Fatalf("Build failed: %v", err)
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			_, err = call(ctx)
+			if !errors.Is(err, ErrRequestClockSkew) {
+				t.Fatalf("got %v, want ErrRequestClockSkew", err)
+			}
+			if errors.Is(err, ErrBadRequest) {
+				t.Error("the refusal also reads as ErrBadRequest")
+			}
+			var skew *ClockSkewError
+			if !errors.As(err, &skew) {
+				t.Fatalf("got %v, want a *ClockSkewError", err)
+			}
+			if !skew.ServerTime.Equal(tc.wantServer) {
+				t.Errorf("the server time is %v", skew.ServerTime)
+			}
+			if got := skew.Skew(); got != tc.wantSkew {
+				t.Errorf("the skew is %v", got)
+			}
+			if got := skew.Error(); got != tc.wantMessage {
+				t.Errorf("the message is %q", got)
+			}
+
+			wantCalls := int32(1)
+			if tc.atTicket {
+				wantCalls = 0
+			}
+			if tickets.Load() != 1 || calls.Load() != wantCalls {
+				t.Errorf("%d tickets and %d calls were sent: a refused clock is the same on a retry",
+					tickets.Load(), calls.Load())
+			}
+		})
+	}
+}
+
+// testLicenseKey is dated 2025-09-16.
+func TestSDK_WithLicenseKey_SendsAKeyDatedTomorrow(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		hostTime time.Time
+		wantSent bool
+	}{
+		{"a host a day behind sends it", time.Date(2025, 9, 15, 0, 0, 0, 0, time.UTC), true},
+		{"a host two days behind does not", time.Date(2025, 9, 14, 23, 59, 59, 0, time.UTC), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fixHostClock(t, tc.hostTime)
+
+			var sent atomic.Bool
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				sent.Store(r.Header.Get(headerXLicenseKey) != "")
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"status":"error","code":"NotFound"}`))
+			}))
+			defer server.Close()
+
+			var call CallReqRespBytes
+			transport := DefaultTransport()
+			transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+			err := Build([]CallConfig{{
+				Calls:  []any{&call},
+				Host:   strings.TrimPrefix(server.URL, "https://"),
+				Name:   "license_status",
+				Path:   "/api/v1/license/status",
+				Method: CallMethodGET,
+			}},
+				WithLicenseKey(encodeLicenseKey(testLicenseKey)),
+				WithMaxRetries(1),
+				WithTransport(transport))
+			if err != nil {
+				t.Fatalf("Build failed: %v", err)
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			if _, err := call(ctx); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("fixture broken: got %v, want the ticket refused as ErrNotFound", err)
+			}
+			if sent.Load() != tc.wantSent {
+				t.Errorf("the key was sent: %v", sent.Load())
+			}
+		})
 	}
 }

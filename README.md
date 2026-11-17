@@ -23,7 +23,7 @@ The VXControl Cloud SDK enables developers to integrate their security tools and
 - **Performance Optimized**: HTTP/2 support, connection pooling, streaming encryption
 - **Enterprise Ready**: Comprehensive error handling, retry logic, and production monitoring
 - **License Integration**: Built-in premium feature validation and tier management
-- **Endpoint Health Probing**: `Check()` API for pre-flight connectivity and quota verification
+- **Endpoint Health Probing**: `Check()` API for pre-flight connectivity and rate-limit checks
 - **Structured Rate Limit Errors**: `RateLimitError` / `QuotaError` carry server-advertised `Retry-After` cooldowns
 - **Context-Safe Retries**: Cancelled context during back-off preserves the last `*RateLimitError` so callers can still read `RetryAfter`
 
@@ -144,7 +144,7 @@ graph TD
     C --> R[Memory-Hard Algorithm]
     C --> S[Rate Limiting]
     D --> T[End-to-End Encryption]
-    D --> V[Forward Secrecy]
+    D --> V[Per-Request Session Keys]
     D --> X[AES-CBC Request Signing]
 ```
 
@@ -260,7 +260,7 @@ investigationReq := models.SupportInvestigationRequest{
 data, _ := json.Marshal(investigationReq)
 response, err := client.IssueInvestigate(ctx, data)
 answer, err := models.ParseEnvelope[models.SupportInvestigationResponse](response)
-// answer.Answer is the reply text; answer.MsgLogs carries the full anonymised
+// answer.Answer is the reply text; answer.MsgLogs carries the
 // conversation transcript when the server attaches one.
 
 // Or set UseStream and bind a second field of the same endpoint (here
@@ -349,7 +349,7 @@ The list of agents (`models.LLMModelsResponse`) is the list object of the OpenAI
 ]}
 ```
 
-The answer of an LLM call is an event stream of its own: `chunk` events, each one `chat.completion.chunk` of the OpenAI API, for a streamed chat completion, and one `result` for any other call. The client turns it back into what the OpenAI API answers — the `data:` frames ending with `data: [DONE]`, or the one object — and reports a failure with the errors of the SDK: before the answer began as the error of the call, inside a stream as the error of a read of its body. A streamed call is answered once its first chunk has arrived, so that a refusal before it — the API refuses everything but a broken stream before the first chunk — is the error of the call as well, as an OpenAI-compatible endpoint answers it with its status. A call whose answer has begun is never sent again: a stream that was cut is not an answer, and the model may have done the work. The server sends a heartbeat every 3 seconds while it works, so an answer that goes silent for `llm.DefaultIdleTimeout` (45 seconds; `Client.SetIdleTimeout` changes it, 0 waits for ever) has lost its connection or its server: the client closes it, and the read fails with `sse.ErrStreamCut` and `llm.ErrStreamIdle`, before the first chunk or between two, streamed or not. A healthy call is never cut for its length, so a caller needs no bound of its own on the duration of a call. A refusal before the answer that may pass — a busy model or a rate (429), 502, 500 — is tried again by the SDK as any call is, up to `sdk.WithMaxRetries` (3 by default): give `llm.New` `sdk.WithMaxRetries(1)` when the library tries again on its own. An embeddings batch larger than the `max_batch_size` of its agent — a library of the OpenAI API sends as many inputs as it was given — is sent by the client in parts of that size, one after another, and answered as one list: the vectors in the order of the inputs, the usage added up. The bound comes from the list of agents, read once for five minutes; when the list cannot be read again the bound read before stands for another five. The client reads the list itself before the first batch; a batch of an agent the list does not name, or sent while the list cannot be read and none was read before, goes whole. A part that fails ends the call with its error, and the parts before it were served.
+The answer of an LLM call is an event stream of its own: `chunk` events, each one `chat.completion.chunk` of the OpenAI API, for a streamed chat completion, and one `result` for any other call. The client turns it back into what the OpenAI API answers — the `data:` frames ending with `data: [DONE]`, or the one object — and reports a failure with the errors of the SDK: before the answer began as the error of the call, inside a stream as the error of a read of its body. A streamed call is answered once its first chunk has arrived, so that a refusal before it — the API refuses everything but a broken stream before the first chunk — is the error of the call as well, as an OpenAI-compatible endpoint answers it with its status. A call whose answer has begun is never sent again: a stream that was cut is not an answer, and the model may have done the work. The server sends a heartbeat every 3 seconds while it works, so an answer that goes silent for `llm.DefaultIdleTimeout` (45 seconds; `Client.SetIdleTimeout` changes it, 0 waits for ever) has lost its connection or its server: the client closes it, and the read fails with `sse.ErrStreamCut` and `llm.ErrStreamIdle`, before the first chunk or between two, streamed or not. A healthy call is never cut for its length, so a caller needs no bound of its own on the duration of a call. A refusal before the answer that may pass — `sdk.ErrTooManyRequests`, `sdk.ErrTooManyRequestsRPM`, `sdk.ErrBadGateway`, `sdk.ErrServerInternal` — is tried again after the wait the SDK takes for it: by the SDK, up to `sdk.WithMaxRetries` (3 by default), when the server answers it with its status, and by the client, up to the same count given to `llm.New`, when the server reports it inside the stream before the first chunk or the result. The last of them is wrapped in `sdk.ErrMaxRetriesExceeded`. Each attempt of the client is a call of the SDK with its own retries, so a call refused both ways in turn is made up to the square of that count, 9 with the default. When the library tries again on its own, give `llm.New` `sdk.WithMaxRetries(1)`. Any other refusal is returned at once, and one inside a stream after its first chunk is an `*sse.Error` from a read of the body, never tried again. An embeddings batch larger than the `max_batch_size` of its agent — a library of the OpenAI API sends as many inputs as it was given — is sent by the client in parts of that size, one after another, and answered as one list: the vectors in the order of the inputs, the usage added up. The bound comes from the list of agents, read once for five minutes; when the list cannot be read again the bound read before stands for another five. The client reads the list itself before the first batch; a batch of an agent the list does not name, or sent while the list cannot be read and none was read before, goes whole. A part that fails ends the call with its error, and the parts before it were served.
 
 ### Licence Status
 
@@ -401,7 +401,49 @@ if err := status.Valid(); err != nil {
 - **`requests` is the share of the calls; `tokens` is the larger of the shares of the input and of the output tokens** — `-1` only when neither has a ceiling — and is absent (`Tokens == nil`) for a limit that meters no tokens. Absent is not `0`: `0` is a limit that meters tokens and has used none.
 - **The list holds the limits of the support assistant and of Cloud LLM** (`llm_agent`, `llm_automation`, `llm_completion`, `llm_embedding`, and a name added later): one of them not in the list is a limit the licence cannot call, or calls with no quota kept, and its absence says nothing of its use. The quotas of other calls — update checks, downloads, the status and the messages of an issue — are never in it. `quotas` is `[]` for none, never null.
 
-`Valid` refuses a share outside `-1`…`100`, a quota without its name, and a status without its tier or its list — which is what a body of any other shape decodes into. The endpoint counts against no quota and has rate limits of its own per licence, shared by its installations: read the status every few hours and when someone asks for it, keep the last one, and after a `*sdk.RateLimitError` ask again no sooner than `sdk.RetryAfterOf(err)`. A licence the API does not serve is refused, either as `sdk.ErrForbidden` or as `sdk.ErrQuotaBlocked` (a `*sdk.QuotaError`): read both as the licence not served, not as a failure to retry. A key `sdk.WithLicenseKey` did not take is refused as `sdk.ErrForbidden` too — a key that does not decode or has expired is not sent at all. The term of a licence is in its key, not in the status: read it locally with `sdk.IntrospectLicenseKey(key)` (`ExpiredAt`, `IsExpired()`) and do not call with an expired key.
+`Valid` refuses a share outside `-1`…`100`, a quota without its name, and a status without its tier or its list — which is what a body of any other shape decodes into. The endpoint counts against no quota and has rate limits of its own per licence, shared by its installations: keep the last status read, and after a `*sdk.RateLimitError` ask again no sooner than `sdk.RetryAfterOf(err)`. A licence the API does not serve is refused, either as `sdk.ErrForbidden` or as `sdk.ErrQuotaBlocked` (a `*sdk.QuotaError`): read both as the licence not served, not as a failure to retry. A key `sdk.WithLicenseKey` did not take is refused as `sdk.ErrForbidden` too — a key that does not decode or has expired is not sent at all. The term of a licence is in its key, not in the status: read it locally with `sdk.IntrospectLicenseKey(key)` (`ExpiredAt`, `IsExpired()`) and do not call with an expired key. A key dated up to a day past the host's date (UTC) is taken; a later date is a `*sdk.LicenseDateError` with both dates, which means the host clock is behind rather than that the key is broken.
+
+The permissions written into the key are read the same way, by name: `info.Allows(flag)` with `sdk.LicenseFlagSupport`, `sdk.LicenseFlagUpdates`, `sdk.LicenseFlagKnowledgeBase`, `sdk.LicenseFlagCloudLLM` or `sdk.LicenseFlagOffline`. A flag says what the key was issued with; whether a feature is served is the status's `features`. `sdk.LicenseFlagOffline` marks a licence whose installation may also be given its license module by hand, where it does not reach the PentAGI Cloud API; an installation that reaches the API asks it for the module like any other.
+
+### Licence Module
+
+`licensing.Client` downloads the license module of a licence from `update.pentagi.com` with one call, `license_module`, and verifies it as it streams; replace a module before its `refresh_by`. The caller supplies the `models.LicenseModuleInfo` the download needs:
+
+```go
+client, err := licensing.New("update.pentagi.com",
+    sdk.WithClient("MySecTool", "1.0.0"),
+    sdk.WithInstallationID(system.GetInstallationID()),
+    sdk.WithLicenseKey(licenseKey),
+)
+if err != nil {
+    return err
+}
+
+var info models.LicenseModuleInfo // supplied by the caller
+if !info.Ready || info.ModuleID == runningModuleID {
+    return nil // none served yet, or up to date
+}
+
+file, err := os.CreateTemp(dir, "module-*")
+if err != nil {
+    return err
+}
+defer os.Remove(file.Name())
+defer file.Close()
+switch err := client.DownloadModule(ctx, info, file); {
+case errors.Is(err, licensing.ErrModuleSuperseded):
+    return err // replaced since info was given: get a new description
+case err != nil:
+    return err // file holds a partial or unverified module
+}
+// sync file and rename it into place
+```
+
+A `models.LicenseModuleInfo` that passes `Valid` carries, when `Ready`, the module's `ModuleID` (32 lowercase hex digits), `BuiltAt`, `RefreshBy`, `Size` (at most `models.LicenseModuleMaxSize`, 40 MiB), `Hash` (SHA-256) and `Signature` (Ed25519 over `models.LicenseModuleDigest` of the SHA-512, which keeps a module's signature apart from a package's); when not, only `RetryAfterSeconds`. `DownloadModule` refuses a description that is not ready or not valid as `sdk.ErrInvalidRequest` before anything is sent.
+
+`DownloadModule` streams the module into the caller's writer and checks its length, SHA-256 and signature against the description in the same pass; a byte past `Size` is refused before it is written, and a mismatch is `licensing.ErrModuleMismatch`. Until it returns nil the writer holds a partial or unverified module. A download refused as `License.ModuleSuperseded` is `licensing.ErrModuleSuperseded` — the module was replaced since the description was given, so get a new one — and one refused as `License.ModuleNotReady` is `licensing.ErrModuleNotReady`. The call has no deadline of its own beyond `ctx`.
+
+Whether the module belongs to the licence and opens is for its runtime to check: the client only delivers it. A licence whose key carries `sdk.LicenseFlagOffline` is served like any other. The endpoint counts against no quota and has rate limits of its own per licence: after a `*sdk.RateLimitError` ask again no sooner than `sdk.RetryAfterOf(err)`.
 
 ### Support Issues
 
@@ -476,7 +518,7 @@ if err != nil {
 created, err := models.ParseEnvelope[models.SupportIssueResponse](response)
 ```
 
-The server refuses a body larger than `models.MaxSupportIssueRequestBytes` (2 MiB), more than `models.MaxSupportIssueLogLines` (2000) lines of logs over all components together, a line outside 1–8192 characters, and `error_details` larger than `models.MaxSupportIssueDetailsBytes` (256 KiB) as compact JSON with `<`, `>` and `&` written as themselves, however they were escaped on the wire. `SupportIssueDetails.Valid` holds the bounds of the document: `schema` at least 1, a `description` of at most 4000 characters, at most 32 providers, 64 findings, 32 skipped parts, and in the flow 10 functions, 10 models and 30 errors. The fields of closed vocabularies, versions and references carry `anonymizer:"skip"`, so `Anonymize` replaces only the free text and leaves them as a reader matches them. Every part, field and bound is described in [API.md](API.md#support-issue-format).
+The server refuses a body larger than `models.MaxSupportIssueRequestBytes` (2 MiB), more than `models.MaxSupportIssueLogLines` (2000) lines of logs over all components together, a line outside 1–8192 characters, and `error_details` larger than `models.MaxSupportIssueDetailsBytes` (256 KiB) as `json.Encoder` writes its value after `SetEscapeHTML(false)`, numbers as they were written, however it was escaped on the wire. `SupportIssueDetails.Valid` holds the bounds of the document: `schema` at least 1, a `description` of at most 4000 characters, at most 32 providers, 64 findings, 32 skipped parts, and in the flow 10 functions, 10 models and 30 errors. The fields of closed vocabularies, versions and references carry `anonymizer:"skip"`, so `Anonymize` replaces only the free text and leaves them as a reader matches them. Every part, field and bound is described in [API.md](API.md#support-issue-format).
 
 **Status and conversation.** The status says what runs on an issue; `UpdatedAt` says when its conversation last changed. The answer of a turn is written after the last move of `UpdatedAt`, before the status returns to `processed`: read the messages when `UpdatedAt` moved, and once more when the status leaves `answering`:
 
@@ -598,10 +640,10 @@ All API calls require solving computational challenges to prevent abuse and DDoS
 - **Session Keys**: Ephemeral AES keys for each request
 - **NaCL Encryption**: Secure key exchange using Curve25519
 - **Streaming Cipher**: AES-GCM for large data transfers
-- **Forward Secrecy**: Cypher key rotation
+- **Key Rotation**: The proof-of-work key changes daily; every request carries its own session key, sealed to the server's public key
 
 ### Rate Limiting Integration
-- **Adaptive Difficulty**: PoW complexity scales with server load
+- **Per-Ticket Puzzles**: PoW parameters are set by each ticket
 - **Tier-Based Access**: License validation determines API quotas
 - **Intelligent Retry**: Automatic backoff with server-provided timing
 
@@ -680,8 +722,10 @@ if err != nil {
 
 // Fatal errors (no retry):
 // - Invalid requests (sdk.ErrBadRequest, sdk.ErrForbidden, sdk.ErrNotFound)
+// - A client the server blocked for a while (sdk.ErrBlocked)
 // - Long-term rate limits (sdk.ErrTooManyRequestsRPH, sdk.ErrTooManyRequestsRPD)
 // - Quota errors (sdk.ErrQuotaBlocked, sdk.ErrQuotaExceededDaily, sdk.ErrQuotaExceededMonthly)
+// - A host clock outside the accepted window (sdk.ErrRequestClockSkew)
 ```
 
 The `calculateWaitTime` logic now **prefers the server-advertised `Retry-After`** value from `*RateLimitError` (capped at `DefaultWaitTime`) over fixed fallback delays.
@@ -708,8 +752,8 @@ if err != nil {
         log.Error("access denied — upgrade license tier")
 
     case errors.Is(err, sdk.ErrForbidden):
-        // Check license validity or authentication
-        log.Error("access denied - verify license key")
+        // Invalid license, a license the endpoint does not serve, or an unknown Name, path or method
+        log.Error("access denied - verify license key and endpoint configuration")
 
     case errors.Is(err, sdk.ErrExperimentTimeout):
         // Increase PoW timeout for slower systems
@@ -723,7 +767,7 @@ if err != nil {
 
 ## Endpoint Health Check
 
-The `Check()` function probes each configured endpoint by acquiring and solving a PoW ticket **without making an actual API call**. Use it at startup or in health-check routines to verify reachability and inspect allowed RPM quotas.
+The `Check()` function probes each configured endpoint by acquiring and solving a PoW ticket **without making an actual API call**. Use it at startup or in health-check routines to verify reachability and inspect the allowed RPM. `Check()` does not consult quotas: `QuotaBlocked` and `QuotaExceeded*` come only from a real call.
 
 ### Basic Usage
 
@@ -784,10 +828,8 @@ case s.LastError() == nil:
     // reachable
 case errors.Is(s.LastError(), sdk.ErrInvalidConfiguration):
     log.Println("bad config — fix CallConfig")
-case errors.Is(s.LastError(), sdk.ErrQuotaBlocked):
-    log.Println("endpoint not available for this license tier")
 case errors.Is(s.LastError(), sdk.ErrForbidden):
-    log.Println("license key rejected by server")
+    log.Println("key rejected, or the endpoint is not served for this license")
 default:
     log.Println("network/server error:", s.LastError())
 }
@@ -804,7 +846,7 @@ default:
 ### Memory Usage
 - **Per request**: ~300 bytes (context + headers + keys)
 - **Per SDK instance**: ~200KB (connection pools + crypto keys)
-- **PoW solving**: 20-1024KB (reused across attempts)
+- **PoW solving**: memory sized by the ticket (reused across attempts)
 
 ### Optimization Tips
 
@@ -1021,12 +1063,21 @@ response, err := client.UpdatesCheck(ctx, requestData)
 | `sdk.ErrExperimentTimeout` | Temporary | Yes (10s) | PoW solving timeout |
 | `sdk.ErrTooManyRequestsRPH` | Fatal | No | Per-hour rate limit exceeded |
 | `sdk.ErrTooManyRequestsRPD` | Fatal | No | Per-day rate limit exceeded |
-| `sdk.ErrForbidden` | Fatal | No | Invalid license or authentication |
+| `sdk.ErrForbidden` | Fatal | No | Invalid license, a license the endpoint does not serve, or an unknown endpoint, `Name`, path or method |
 | `sdk.ErrBadRequest` | Fatal | No | Invalid request format |
-| `sdk.ErrNotFound` | Fatal | No | Unknown endpoint or resource |
+| `sdk.ErrNotFound` | Fatal | No | A named resource that does not exist, or a host the endpoint is not served on |
+| `sdk.ErrBlocked` | Fatal | Never | The client is temporarily blocked |
 | `sdk.ErrQuotaBlocked` | Fatal | Never | Endpoint not available for this license tier |
 | `sdk.ErrQuotaExceededDaily` | Fatal | No (Retry-After via `*QuotaError`) | Daily quota exhausted |
 | `sdk.ErrQuotaExceededMonthly` | Fatal | No (Retry-After via `*QuotaError`) | Monthly quota exhausted |
+| `sdk.ErrRequestClockSkew` | Fatal | No | The host clock is outside the window the server accepts; `*ClockSkewError` carries the server's time (`ServerTime`) and `Skew()` |
+
+The update and package endpoints refuse some calls with codes of their own, which the SDK maps to no sentinel: the error matches `sdk.ErrRequestFailed` under `errors.Is` and its message begins with the code. Neither is retried.
+
+| Server Code | HTTP | Description |
+|-------------|------|-------------|
+| `Updates.InvalidRequest` | 400 | The request cannot be read or is not valid |
+| `Updates.NotFound` | 404 | The package asked for does not exist |
 
 > **Tip:** Use `sdk.RetryAfterOf(err)` to extract the server-suggested cooldown from any error, regardless of whether it is a `*RateLimitError` or `*QuotaError` or wrapped further in a context error.
 
@@ -1069,30 +1120,21 @@ The SDK provides strongly-typed models for all API interactions:
 - `SupportIssueMessagesResponse`: The conversation of an issue as the server keeps it, `[]` before the first question
 - `SupportLogs`: Component log collection
 - `SupportInvestigationRequest` / `SupportInvestigationResponse`: AI-powered troubleshooting. Set `UseStream: true` and bind a call type that returns a reader (`CallReqBytesRespReader`) to receive the answer as an event stream instead of one JSON response; read it with `sdk/sse` (see "Reading an event stream"). The events are `SupportStreamEvent`, their payloads `SupportStreamStart`, `SupportStreamMessage`, `SupportStreamThinking`, `SupportStreamContent`, `SupportStreamUpdate`, `SupportStreamFlush`.
-- `SupportMsgLog` / `MsgLogType`: One message of the (anonymised) investigation conversation, returned in `SupportInvestigationResponse.MsgLogs` and `SupportIssueMessagesResponse.Messages`. A question is not held until the processing of the logs of its issue ends: while the issue is `processing` it is refused with `Support.Busy`, so read the status before asking. `MsgLogTypeWait` stays in the vocabulary; show it as any other step. An answer that is not streamed has to fit, as a whole, the SDK's wait for response headers (three minutes): prefer the stream.
+- `SupportMsgLog` / `MsgLogType`: One message of the investigation conversation, returned in `SupportInvestigationResponse.MsgLogs` and `SupportIssueMessagesResponse.Messages`. A question is not held until the processing of the logs of its issue ends: while the issue is `processing` it is refused with `Support.Busy`, so read the status before asking. `MsgLogTypeWait` stays in the vocabulary; show it as any other step. An answer that is not streamed has to fit, as a whole, the SDK's wait for response headers (three minutes): prefer the stream.
 
 ### Licence Status Models
 - `LicenseStatusResponse`: The tier of a licence, its `LicenseFeatures` and its `Quotas` — each a `LicenseQuota` whose `Daily` and `Monthly` `LicenseQuotaUsage` are whole percents of the quota used, `LicenseQuotaUnlimited` (`-1`) for no ceiling. Read it with `ParseEnvelope`, then `Valid`; see "Licence Status" for the rules of the numbers.
+
+### Licence Module Models
+- `LicenseModuleInfo`: Whether a license module is served for a licence and, when it is, its ID, dates, size, SHA-256 and signature; `RetryAfterSeconds` when none is. Check it with `Valid`; `licensing.Client.DownloadModule` downloads the module it describes; see "Licence Module".
+- `IsLicenseModuleID(id)`, `LicenseModuleMaxSize`: the form of a module ID and the largest module served.
 
 ### System Utilities
 - `system.GetInstallationID()`: Generates stable, machine-specific UUID for installation tracking
 
 ## Service Tiers
 
-### Free Tier
-- **Basic error reporting**: Automated error submission
-- **Package validation**: Ed25519 signature verification
-- **Rate limiting**: Standard PoW difficulty
-
-### Professional Tier
-- **AI troubleshooting**: x5 investigation sessions/day
-- **Package downloads**: Access to all packages
-- **Rate limiting**: Reduced PoW difficulty
-
-### Enterprise Tier
-- **Advanced AI troubleshooting**: x50 investigation sessions/day
-- **Custom integrations**: Specialized endpoints and workflows
-- **Priority processing**: Minimal PoW difficulty and fast-track handling
+What a licence gives access to depends on its tier and on the features its key carries. Update checks and package downloads work without a licence key. The status endpoint (see "Licence Status") reports the tier, the features and the share of each quota a licence has used; a feature the tier does not serve, such as Cloud LLM on some tiers, is `false` in `features` even when the key carries the flag.
 
 ## Future Roadmap
 
@@ -1143,19 +1185,13 @@ See [LICENSE](LICENSE) for complete MIT license terms.
 
 ### VXControl Cloud Services Access
 
-⚠️ **Important:** While the SDK code is free (MIT), accessing VXControl Cloud Services requires a valid License Key and compliance with separate terms.
+⚠️ **Important:** While the SDK code is free (MIT), using PentAGI Cloud services is subject to the [Terms of Use](TERMS_OF_SERVICE.md), and some services require a valid License Key. PentAGI Enterprise is proprietary and is licensed only under its EULA (<https://pentagi.com/eula/>) or a written agreement with VXControl L.L.C-FZ; commercial use of PentAGI Enterprise is prohibited without a trial or paid licence, and a company requests a trial licence through the form at [console.pentagi.com](https://console.pentagi.com/).
 
 **What requires a License Key:**
-- 🔑 **API Access** to VXControl Cloud Platform services
-- 🔑 **Threat Intelligence** data and updates
 - 🔑 **AI-Powered Support** and troubleshooting assistance
-- 🔑 **Package Downloads** from secure repositories
 - 🔑 **Premium Features** and enterprise capabilities
 
-**Service Tiers:**
-- **Free Tier:** Basic error reporting and package validation
-- **Professional Tier:** AI troubleshooting, package downloads
-- **Enterprise Tier:** Full threat intelligence, priority support
+Update checks and package downloads need no key. What a key gives access to depends on its licence; see [Terms of Use](TERMS_OF_SERVICE.md).
 
 **Usage Restrictions:**
 Cloud services and obtained data may ONLY be used for:
@@ -1167,10 +1203,10 @@ Cloud services and obtained data may ONLY be used for:
 **Get Started:**
 1. **Use the SDK:** MIT licensed code works immediately
 2. **Get a License Key:** Register at [console.pentagi.com](https://console.pentagi.com/) to obtain a license key for cloud services access
-3. **Review Terms:** Read [TERMS_OF_SERVICE.md](TERMS_OF_SERVICE.md) before using cloud services
+3. **Review Terms:** Read [TERMS_OF_SERVICE.md](TERMS_OF_SERVICE.md) before using cloud services; for PentAGI Enterprise, the EULA governs
 
 ### Contact
 
 For license keys and account management: **[console.pentagi.com](https://console.pentagi.com/)**  
-For licensing questions: **info@vxcontrol.com**  
-For Terms of Service violations: **info@vxcontrol.com** (Subject: "Cloud Services Terms")
+For legal and licensing questions: **legal@vxcontrol.com**  
+For security reports: **security@vxcontrol.com**

@@ -1,6 +1,7 @@
 package models
 
 import (
+	"bytes"
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
@@ -69,9 +70,12 @@ func (sir SupportIssueRequest) Valid() error {
 }
 
 // validSupportIssueSize checks the limits of an issue a tag cannot state. error_details is
-// measured as json.Encoder writes it without escaping HTML — the way to send it, and the
-// way the server measures it: json.Marshal writes each <, > and & of tool output as six
-// bytes and would refuse a document that travels well inside the limit.
+// measured as the server measures it, whatever form the caller holds it in: its value,
+// numbers as they are written, written compact by json.Encoder without escaping HTML. So
+// <, > and & of tool output count one byte each (json.Marshal would write six and refuse
+// a document that travels well inside the limit), and every character counts as the
+// encoder writes it, whether it was escaped or raw: a U+2028 or U+2029 as the six bytes
+// of its escape.
 func validSupportIssueSize(logs []SupportLogs, details any) error {
 	lines := 0
 	for _, component := range logs {
@@ -81,10 +85,20 @@ func validSupportIssueSize(logs []SupportLogs, details any) error {
 		return fmt.Errorf("an issue carries at most %d lines of logs, not %d", MaxSupportIssueLogLines, lines)
 	}
 
+	written, err := json.Marshal(details)
+	if err != nil {
+		return fmt.Errorf("error_details: %w", err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(written))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return fmt.Errorf("error_details: %w", err)
+	}
 	var size byteCounter
 	encoder := json.NewEncoder(&size)
 	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(details); err != nil {
+	if err := encoder.Encode(value); err != nil {
 		return fmt.Errorf("error_details: %w", err)
 	}
 	// Encode ends the value with a newline that is not part of it

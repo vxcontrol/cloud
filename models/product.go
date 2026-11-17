@@ -2,9 +2,12 @@ package models
 
 import (
 	"encoding/json"
+	"fmt"
 )
 
-// MaxProductInfoBytes bounds the state document an update carries.
+// MaxProductInfoBytes bounds the state document an update carries, measured as
+// json.Marshal writes it into the request: compact, with each <, > and & as six
+// bytes.
 const MaxProductInfoBytes = 16384
 
 // ProductUpdateRequest is how a running product asks the update service what it
@@ -43,12 +46,32 @@ type ProductUpdateRequest struct {
 	// answers such a request under its own default rather than refusing it.
 	Strategy UpdateStrategy `json:"strategy,omitempty" validate:"omitempty,valid"`
 
-	// Info is the state document. Bounded because nothing else bounds it.
-	Info json.RawMessage `json:"info" validate:"required,max=16384"`
+	// Info is the state document, at most MaxProductInfoBytes.
+	Info json.RawMessage `json:"info" validate:"required"`
 }
 
 func (p ProductUpdateRequest) Valid() error {
-	return validate.Struct(p)
+	if err := validate.Struct(p); err != nil {
+		return err
+	}
+	return validProductInfo(p.Info)
+}
+
+// validProductInfo measures info as the request carries it, not as the caller
+// holds it: an indented document arrives smaller, and one of tool output with
+// <, > or & larger.
+func validProductInfo(info json.RawMessage) error {
+	if len(info) == 0 {
+		return nil
+	}
+	written, err := json.Marshal(info)
+	if err != nil {
+		return fmt.Errorf("info: %w", err)
+	}
+	if len(written) > MaxProductInfoBytes {
+		return fmt.Errorf("info is at most %d bytes as written, not %d", MaxProductInfoBytes, len(written))
+	}
+	return nil
 }
 
 // ProductUpdateResponse is what the service answers such a request with.

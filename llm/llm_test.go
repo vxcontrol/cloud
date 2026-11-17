@@ -39,8 +39,10 @@ func frames(events ...string) string {
 	return b.String()
 }
 
-// fakeCalls answers the calls with the given streams and records the bodies sent.
+// fakeCalls answers the calls with the given streams and records the bodies sent: the
+// first calls with before, one each, and every call after them with answer.
 type fakeCalls struct {
+	before []string
 	answer string
 	err    error
 	sent   [][]byte
@@ -50,6 +52,9 @@ func (f *fakeCalls) call(_ context.Context, body []byte) (io.ReadCloser, error) 
 	f.sent = append(f.sent, body)
 	if f.err != nil {
 		return nil, f.err
+	}
+	if n := len(f.sent); n <= len(f.before) {
+		return io.NopCloser(strings.NewReader(f.before[n-1])), nil
 	}
 	return io.NopCloser(strings.NewReader(f.answer)), nil
 }
@@ -62,7 +67,19 @@ func client(chat, embed *fakeCalls) *Client {
 	if embed != nil {
 		calls.Embeddings = embed.call
 	}
-	return NewFromCalls(calls)
+	c := NewFromCalls(calls)
+	paused(c)
+	return c
+}
+
+// paused has c take no pause between two attempts and records the waits it asked for.
+func paused(c *Client) *[]time.Duration {
+	waits := &[]time.Duration{}
+	c.pause = func(ctx context.Context, wait time.Duration) error {
+		*waits = append(*waits, wait)
+		return ctx.Err()
+	}
+	return waits
 }
 
 func post(t *testing.T, c *Client, path, body string) (*http.Response, error) {
@@ -140,24 +157,31 @@ func TestClient_Do_ReportsAFailureWithTheErrorsOfTheSDK(t *testing.T) {
 		stream bool
 		is     error
 		read   string // what a stream reads before its failure; a stream that has none fails in Do
+		sent   int
 	}{
-		"a failure after a chunk":             {frames("start", "{}", "chunk", chunkA, "error", `{"code":"BadGateway","message":"bad gateway"}`), true, sdk.ErrBadGateway, "data: " + chunkA + "\n\n"},
-		"a stream cut after a chunk":          {frames("start", "{}", "chunk", chunkA), true, sse.ErrStreamCut, "data: " + chunkA + "\n\n"},
-		"a refusal before the first chunk":    {frames("start", "{}", "heartbeat", "{}", "error", `{"code":"BadGateway","message":"bad gateway"}`), true, sdk.ErrBadGateway, ""},
-		"a stream cut before its first chunk": {frames("start", "{}"), true, sse.ErrStreamCut, ""},
-		"a result in a stream":                {frames("start", "{}", "result", result, "done", "{}"), true, sse.ErrMalformed, ""},
-		"a chunk over two lines":              {"event: start\ndata: {}\n\nevent: chunk\ndata: {\"a\":\ndata: 1}\n\nevent: done\ndata: {}\n\n", true, sse.ErrMalformed, ""},
-		"a failure of a whole answer":         {frames("start", "{}", "error", `{"code":"BadRequest","message":"bad request"}`), false, sdk.ErrBadRequest, ""},
-		"a whole answer cut":                  {frames("start", "{}", "result", result), false, sse.ErrStreamCut, ""},
-		"a chunk in a whole answer":           {frames("start", "{}", "chunk", chunkA, "result", result, "done", "{}"), false, sse.ErrMalformed, ""},
-		"two results":                         {frames("start", "{}", "result", result, "result", result, "done", "{}"), false, sse.ErrMalformed, ""},
-		"no result":                           {frames("start", "{}", "done", "{}"), false, sse.ErrMalformed, ""},
+		"a failure after a chunk":                 {frames("start", "{}", "chunk", chunkA, "error", `{"code":"BadGateway","message":"bad gateway"}`), true, sdk.ErrBadGateway, "data: " + chunkA + "\n\n", 1},
+		"a stream cut after a chunk":              {frames("start", "{}", "chunk", chunkA), true, sse.ErrStreamCut, "data: " + chunkA + "\n\n", 1},
+		"a refusal before the first chunk":        {frames("start", "{}", "heartbeat", "{}", "error", `{"code":"BadGateway","message":"bad gateway"}`), true, sdk.ErrBadGateway, "", 3},
+		"a stream cut before its first chunk":     {frames("start", "{}"), true, sse.ErrStreamCut, "", 1},
+		"a result in a stream":                    {frames("start", "{}", "result", result, "done", "{}"), true, sse.ErrMalformed, "", 1},
+		"a chunk over two lines":                  {"event: start\ndata: {}\n\nevent: chunk\ndata: {\"a\":\ndata: 1}\n\nevent: done\ndata: {}\n\n", true, sse.ErrMalformed, "", 1},
+		"a failure of a whole answer":             {frames("start", "{}", "error", `{"code":"BadRequest","message":"bad request"}`), false, sdk.ErrBadRequest, "", 1},
+		"a failure of a whole answer that passes": {frames("start", "{}", "heartbeat", "{}", "error", `{"code":"Internal","message":"internal"}`), false, sdk.ErrServerInternal, "", 3},
+		"a failure after the result":              {frames("start", "{}", "result", result, "error", `{"code":"BadGateway","message":"bad gateway"}`), false, sdk.ErrBadGateway, "", 1},
+		"a whole answer cut":                      {frames("start", "{}", "result", result), false, sse.ErrStreamCut, "", 1},
+		"a chunk in a whole answer":               {frames("start", "{}", "chunk", chunkA, "result", result, "done", "{}"), false, sse.ErrMalformed, "", 1},
+		"two results":                             {frames("start", "{}", "result", result, "result", result, "done", "{}"), false, sse.ErrMalformed, "", 1},
+		"no result":                               {frames("start", "{}", "done", "{}"), false, sse.ErrMalformed, "", 1},
 	} {
 		body := `{"model":"pentagi.coder","messages":[]}`
 		if tc.stream {
 			body = `{"model":"pentagi.coder","messages":[],"stream":true}`
 		}
-		resp, err := post(t, client(&fakeCalls{answer: tc.answer}, nil), "/chat/completions", body)
+		calls := &fakeCalls{answer: tc.answer}
+		resp, err := post(t, client(calls, nil), "/chat/completions", body)
+		if len(calls.sent) != tc.sent {
+			t.Errorf("%s: sent %d times", name, len(calls.sent))
+		}
 		if !tc.stream || tc.read == "" {
 			if !errors.Is(err, tc.is) {
 				t.Errorf("%s: %v", name, err)
@@ -180,8 +204,133 @@ func TestClient_Do_ReportsAFailureWithTheErrorsOfTheSDK(t *testing.T) {
 	}
 }
 
+// A refusal inside the stream before its answer is made again as the SDK makes again
+// the same refusal answered with its status: the same codes, the same waits, as many
+// times, and never past the end of the request's context.
+func TestClient_Do_MakesAgainACallRefusedInsideItsStreamBeforeItsAnswer(t *testing.T) {
+	refused := frames("start", "{}", "heartbeat", "{}", "error", `{"code":"BadGateway","message":"bad gateway"}`)
+	const streamed = `{"model":"pentagi.coder","messages":[],"stream":true}`
+
+	for name, tc := range map[string]struct {
+		path, body, answer, want string
+	}{
+		"a streamed chat completion": {"/chat/completions", streamed, frames("start", "{}", "chunk", chunkA, "done", "{}"), "data: " + chunkA + "\n\ndata: [DONE]\n\n"},
+		"a chat completion":          {"/chat/completions", `{"model":"pentagi.coder","messages":[]}`, frames("start", "{}", "result", result, "done", "{}"), result},
+		"embeddings":                 {"/embeddings", `{"model":"pentagi.embedding","input":["a","b"]}`, frames("start", "{}", "result", vectors, "done", "{}"), vectors},
+	} {
+		calls := &fakeCalls{before: []string{refused, refused}, answer: tc.answer}
+		c := client(calls, calls)
+		waits := paused(c)
+		resp, err := post(t, c, tc.path, tc.body)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		body, err := io.ReadAll(resp.Body)
+		if err != nil || string(body) != tc.want {
+			t.Errorf("%s: read %q, %v", name, body, err)
+		}
+		if len(calls.sent) != 3 || string(calls.sent[2]) != tc.body {
+			t.Errorf("%s: sent %q", name, calls.sent)
+		}
+		if got := fmt.Sprint(*waits); got != "[3s 3s]" {
+			t.Errorf("%s: waited %s", name, got)
+		}
+	}
+
+	for refusal, want := range map[string]struct {
+		sent  int
+		waits string
+	}{
+		`{"code":"BadGateway"}`:                            {3, "[3s 3s]"},
+		`{"code":"Internal"}`:                              {3, "[3s 3s]"},
+		`{"code":"TooManyRequests"}`:                       {3, "[5s 5s]"},
+		`{"code":"TooManyRequests","retry_after":2}`:       {3, "[2s 2s]"},
+		`{"code":"TooManyRequestsRPM"}`:                    {3, "[10s 10s]"},
+		`{"code":"TooManyRequestsRPM","retry_after":60}`:   {3, "[10s 10s]"},
+		`{"code":"TooManyRequestsRPH","retry_after":60}`:   {1, "[]"},
+		`{"code":"TooManyRequestsRPD"}`:                    {1, "[]"},
+		`{"code":"BadRequest"}`:                            {1, "[]"},
+		`{"code":"Forbidden"}`:                             {1, "[]"},
+		`{"code":"Blocked"}`:                               {1, "[]"},
+		`{"code":"NotFound"}`:                              {1, "[]"},
+		`{"code":"QuotaBlocked"}`:                          {1, "[]"},
+		`{"code":"QuotaExceededDaily","retry_after":3600}`: {1, "[]"},
+		`{"code":"QuotaExceededMonthly"}`:                  {1, "[]"},
+		`{"code":"RequestClockSkew"}`:                      {1, "[]"},
+		`{"code":"ACodeOfANewerServer"}`:                   {1, "[]"},
+	} {
+		calls := &fakeCalls{answer: frames("start", "{}", "error", refusal)}
+		c := client(calls, nil)
+		waits := paused(c)
+		_, err := post(t, c, "/chat/completions", streamed)
+		var event *sse.Error
+		if !errors.As(err, &event) || errors.Is(err, sdk.ErrMaxRetriesExceeded) != (want.sent > 1) {
+			t.Errorf("%s: %v", refusal, err)
+		}
+		if len(calls.sent) != want.sent || fmt.Sprint(*waits) != want.waits {
+			t.Errorf("%s: sent %d times, waited %v", refusal, len(calls.sent), *waits)
+		}
+	}
+
+	for retries, sent := range map[int]int{0: 1, 1: 1, 2: 2, 5: 5} {
+		calls := &fakeCalls{answer: refused}
+		c := client(calls, nil)
+		c.SetMaxRetries(retries)
+		_, err := post(t, c, "/chat/completions", streamed)
+		if !errors.Is(err, sdk.ErrBadGateway) || !errors.Is(err, sdk.ErrMaxRetriesExceeded) ||
+			!strings.Contains(fmt.Sprint(err), fmt.Sprintf("after %d attempts", sent)) {
+			t.Errorf("SetMaxRetries(%d): %v", retries, err)
+		}
+		if len(calls.sent) != sent {
+			t.Errorf("SetMaxRetries(%d): sent %d times", retries, len(calls.sent))
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var sent int
+	c := NewFromCalls(Calls{ChatCompletions: func(ctx context.Context, _ []byte) (io.ReadCloser, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		sent++
+		cancel()
+		return io.NopCloser(strings.NewReader(refused)), nil
+	}})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, BaseURL+"/chat/completions", strings.NewReader(streamed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	began := time.Now()
+	_, err = c.Do(req)
+	if !errors.Is(err, context.Canceled) || !errors.Is(err, sdk.ErrBadGateway) || sent != 1 {
+		t.Errorf("a request whose context ended during the wait: %v, sent %d times", err, sent)
+	}
+	if elapsed := time.Since(began); elapsed > 2*time.Second {
+		t.Errorf("the wait went on %v after the context ended", elapsed)
+	}
+}
+
 // The Client serves the two calls of the OpenAI API it has and nothing else, and never
 // for a request whose context has ended.
+func TestClient_New_RetriesAsManyTimesAsTheSDK(t *testing.T) {
+	for _, tc := range []struct {
+		options []sdk.Option
+		want    int64
+	}{
+		{nil, 3},
+		{[]sdk.Option{sdk.WithMaxRetries(1)}, 1},
+		{[]sdk.Option{sdk.WithMaxRetries(5)}, 5},
+	} {
+		c, err := New("llm.example.com", tc.options...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := c.retries.Load(); got != tc.want {
+			t.Errorf("%d options: %d retries, want %d", len(tc.options), got, tc.want)
+		}
+	}
+}
+
 func TestClient_Do_ServesOnlyTheCallsItHas(t *testing.T) {
 	calls := &fakeCalls{answer: frames("start", "{}", "result", result, "done", "{}")}
 	c := client(calls, calls)

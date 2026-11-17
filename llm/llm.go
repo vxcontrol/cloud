@@ -21,7 +21,14 @@
 // of the body; a stream cut before its end is sse.ErrStreamCut. A call whose answer has
 // begun is never sent again: a stream that was cut is not an answer, and is not a reason
 // to send the request again — the model may have done the work. A refusal before the
-// answer that may pass (429, 502, 500) is tried again by the SDK, up to WithMaxRetries.
+// answer that may pass — sdk.ErrTooManyRequests, sdk.ErrTooManyRequestsRPM,
+// sdk.ErrBadGateway, sdk.ErrServerInternal — is tried again after the wait the SDK
+// takes for it: by the SDK, up to sdk.WithMaxRetries, when the server answers it with
+// its status, and by the Client, up to the same count, when the server reports it inside
+// the stream before the first chunk or the result. The last of them is then wrapped in
+// sdk.ErrMaxRetriesExceeded. Each attempt of the Client is a call of the SDK with its own
+// retries, so a call refused both ways in turn is made up to the square of that count.
+// Any other refusal is returned at once.
 //
 // The server sends a heartbeat every few seconds while it works, so an answer that goes
 // silent for DefaultIdleTimeout has lost its connection or its server: its body is closed
@@ -87,8 +94,10 @@ const batchesTTL = 5 * time.Minute
 // Client serves the requests of a library of the OpenAI API with the calls of the API.
 // It is safe for concurrent use.
 type Client struct {
-	calls Calls
-	idle  atomic.Int64 // the idle timeout in nanoseconds; 0 is none
+	calls   Calls
+	idle    atomic.Int64 // the idle timeout in nanoseconds; 0 is none
+	retries atomic.Int64
+	pause   func(ctx context.Context, wait time.Duration) error
 
 	mu        sync.Mutex
 	batches   map[string]int // max_batch_size by agent of embeddings
@@ -96,7 +105,8 @@ type Client struct {
 }
 
 // New builds the calls of the API against host and returns a Client of them. The
-// options are those of the SDK: the licence key, the installation, the transport.
+// options are those of the SDK: the licence key, the installation, the transport. The
+// count of sdk.WithMaxRetries bounds the retries of the SDK and of the Client alike.
 func New(host string, options ...sdk.Option) (*Client, error) {
 	var calls Calls
 	err := sdk.Build([]sdk.CallConfig{
@@ -107,13 +117,16 @@ func New(host string, options ...sdk.Option) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewFromCalls(calls), nil
+	c := NewFromCalls(calls)
+	c.SetMaxRetries(sdk.MaxRetriesOf(options...))
+	return c, nil
 }
 
 // NewFromCalls returns a Client of calls made elsewhere: by tests and tools.
 func NewFromCalls(calls Calls) *Client {
-	c := &Client{calls: calls}
+	c := &Client{calls: calls, pause: pause}
 	c.idle.Store(int64(DefaultIdleTimeout))
+	c.retries.Store(sdk.DefaultMaxRetries)
 	return c
 }
 
@@ -121,6 +134,15 @@ func NewFromCalls(calls Calls) *Client {
 // 0 waits for ever.
 func (c *Client) SetIdleTimeout(timeout time.Duration) {
 	c.idle.Store(int64(max(timeout, 0)))
+}
+
+// SetMaxRetries sets how many times the Client makes a call the server refuses inside
+// its stream, before the first chunk or the result, for a reason that may pass: the
+// count of sdk.WithMaxRetries for a Client of New, sdk.DefaultMaxRetries for one of
+// NewFromCalls until it is set. Each of these calls is a call of the SDK with its own
+// retries, so the two counts multiply. Below 1 is 1.
+func (c *Client) SetMaxRetries(maxRetries int) {
+	c.retries.Store(int64(max(maxRetries, 1)))
 }
 
 // watched cuts answer once it goes silent for the idle timeout of the Client.
@@ -188,7 +210,8 @@ func (c *Client) Models(ctx context.Context) (models.LLMModelsResponse, error) {
 // arrives; any other call is read whole first and answered with the one object of its
 // answer. Either way a refusal before the answer began — the API refuses before the
 // first chunk what it refuses at all but a stream that breaks — is the error of Do, as
-// an OpenAI-compatible endpoint answers it with its status before a stream.
+// an OpenAI-compatible endpoint answers it with its status before a stream; one that
+// may pass is tried again first (SetMaxRetries).
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	ctx := req.Context()
 	if err := ctx.Err(); err != nil {
@@ -234,23 +257,28 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 		return respond(req, "application/json", io.NopCloser(bytes.NewReader(result))), nil
 	}
 
-	answer, err := call(ctx, body)
-	if err != nil {
-		return nil, err
-	}
-	answer = c.watched(answer)
-	reader := sse.NewReader(answer, sdk.ErrorFromCode)
 	if mode.Stream {
-		stream := &streamBody{reader: reader, body: answer}
-		if err := stream.fill(); err != nil {
-			_ = stream.Close()
+		var stream *streamBody
+		err := c.again(ctx, func() (bool, error) {
+			answer, err := call(ctx, body)
+			if err != nil {
+				return false, err
+			}
+			answer = c.watched(answer)
+			stream = &streamBody{reader: sse.NewReader(answer, sdk.ErrorFromCode), body: answer}
+			if err := stream.fill(); err != nil {
+				_ = stream.Close()
+				return true, err
+			}
+			return false, nil
+		})
+		if err != nil {
 			return nil, err
 		}
 		return respond(req, "text/event-stream", stream), nil
 	}
 
-	defer answer.Close()
-	result, err := oneResult(reader)
+	result, err := c.oneCall(ctx, call, body)
 	if err != nil {
 		return nil, err
 	}
@@ -259,13 +287,78 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 
 // oneCall makes a call that is not streamed and returns its one result.
 func (c *Client) oneCall(ctx context.Context, call sdk.CallReqBytesRespReader, body []byte) ([]byte, error) {
-	answer, err := call(ctx, body)
-	if err != nil {
-		return nil, err
+	var result []byte
+	err := c.again(ctx, func() (bool, error) {
+		answer, err := call(ctx, body)
+		if err != nil {
+			return false, err
+		}
+		answer = c.watched(answer)
+		defer answer.Close()
+		var read bool
+		result, read, err = oneResult(sse.NewReader(answer, sdk.ErrorFromCode))
+		return !read, err
+	})
+	return result, err
+}
+
+// again makes a call by attempt while the server refuses it inside its stream, before
+// anything of its answer, for a reason that may pass: at most SetMaxRetries times, after
+// the wait the SDK takes for that refusal. attempt reports whether its failure came
+// before anything of the answer was read; once a chunk or the result has arrived the
+// model has done the work, and a chunk may have reached the caller.
+func (c *Client) again(ctx context.Context, attempt func() (unanswered bool, err error)) error {
+	attempts := int(c.retries.Load())
+	for n := 1; ; n++ {
+		unanswered, err := attempt()
+		var refusal *sse.Error
+		if !unanswered || !errors.As(err, &refusal) || !temporary(refusal.Err) {
+			return err
+		}
+		if n >= attempts {
+			return fmt.Errorf("%w after %d attempts: %w", sdk.ErrMaxRetriesExceeded, attempts, err)
+		}
+		if waitErr := c.pause(ctx, backoff(refusal.Err)); waitErr != nil {
+			return fmt.Errorf("%w: %w", waitErr, err)
+		}
 	}
-	answer = c.watched(answer)
-	defer answer.Close()
-	return oneResult(sse.NewReader(answer, sdk.ErrorFromCode))
+}
+
+// temporary reports whether the SDK makes again a call refused so with its status:
+// a busy server, a rate of a minute, a bad gateway, an internal error. A rate of an hour
+// or a day and every other refusal is not.
+func temporary(refusal error) bool {
+	return errors.Is(refusal, sdk.ErrTooManyRequests) || errors.Is(refusal, sdk.ErrTooManyRequestsRPM) ||
+		errors.Is(refusal, sdk.ErrBadGateway) || errors.Is(refusal, sdk.ErrServerInternal)
+}
+
+// backoff is the wait the SDK takes before it makes again a call refused so with its
+// status: the cooldown the refusal names, capped by sdk.DefaultWaitTime, or the SDK's
+// own for the kind of refusal.
+func backoff(refusal error) time.Duration {
+	var limited *sdk.RateLimitError
+	switch {
+	case errors.As(refusal, &limited) && limited.RetryAfter > 0:
+		return min(limited.RetryAfter, sdk.DefaultWaitTime)
+	case errors.Is(refusal, sdk.ErrTooManyRequestsRPM):
+		return sdk.DefaultWaitTime
+	case errors.Is(refusal, sdk.ErrTooManyRequests):
+		return 5 * time.Second
+	default:
+		return 3 * time.Second
+	}
+}
+
+// pause waits before the next attempt, or until ctx ends.
+func pause(ctx context.Context, wait time.Duration) error {
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // embed makes an embeddings call. A batch larger than the max_batch_size of the agent
@@ -407,23 +500,24 @@ func respond(req *http.Request, contentType string, body io.ReadCloser) *http.Re
 }
 
 // oneResult reads the stream of a call that is not streamed: its answer is the one
-// result, complete only once the stream says so.
-func oneResult(reader *sse.Reader) ([]byte, error) {
+// result, complete only once the stream says so. The flag reports whether the result
+// had arrived when the stream failed.
+func oneResult(reader *sse.Reader) ([]byte, bool, error) {
 	var result []byte
 	for {
 		event, err := reader.Next()
 		switch {
 		case err == io.EOF:
 			if result == nil {
-				return nil, fmt.Errorf("%w: the answer ended without its result", sse.ErrMalformed)
+				return nil, false, fmt.Errorf("%w: the answer ended without its result", sse.ErrMalformed)
 			}
-			return result, nil
+			return result, true, nil
 		case err != nil:
-			return nil, err
+			return nil, result != nil, err
 		case event.Name == models.LLMStreamEventResult && result == nil:
 			result = event.Data
 		case event.Name == models.LLMStreamEventResult, event.Name == models.LLMStreamEventChunk:
-			return nil, fmt.Errorf("%w: a %s event in an answer of one result", sse.ErrMalformed, event.Name)
+			return nil, result != nil, fmt.Errorf("%w: a %s event in an answer of one result", sse.ErrMalformed, event.Name)
 		}
 	}
 }

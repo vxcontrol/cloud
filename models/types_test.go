@@ -145,9 +145,6 @@ func TestComponentVocabularyMatchesTheOtherSide(t *testing.T) {
 		t.Errorf("this side has %d components, the pinned list has %d",
 			len(got), len(goldenComponentVocabulary))
 	}
-	// Order matters as well as membership: it is the order of the PostgreSQL
-	// enum and the ClickHouse Enum8, and a reader comparing the three by eye
-	// depends on it.
 	for i := range min(len(got), len(goldenComponentVocabulary)) {
 		if got[i] != goldenComponentVocabulary[i] {
 			t.Errorf("component %d is %q here and %q in the pinned list", i, got[i], goldenComponentVocabulary[i])

@@ -33,6 +33,7 @@ const (
 	headerXRequestKey     = "X-Request-Key"
 	headerXRequestSign    = "X-Request-Sign"
 	headerXLicenseKey     = "X-License-Key"
+	headerXServerTime     = "X-Server-Time"
 )
 
 func DefaultTransport() *http.Transport {

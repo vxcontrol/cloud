@@ -15,20 +15,21 @@ sequenceDiagram
     participant PoW as PoW Service
 
     App->>SDK: Configure endpoints & Build()
-    App->>SDK: Support API call request
 
-    alt Support/AI Services
-        SDK->>Anon: Anonymize sensitive data
-        Anon-->>SDK: PII/secrets masked
-        Note over Anon: Mandatory for AI requests<br/>300+ pattern recognition
+    opt Client applies the anonymizer
+        App->>Anon: Anonymize sensitive data
+        Anon-->>App: PII/secrets masked
+        Note over Anon: Applied by the client, optional<br/>300+ pattern recognition
     end
+
+    App->>SDK: Support API call request
 
     SDK->>PoW: Request challenge ticket
     PoW-->>SDK: Challenge (nonce, difficulty)
-    SDK->>SDK: Solve PoW puzzle (12-1024KB)
+    SDK->>SDK: Solve memory-hard PoW puzzle
 
     SDK->>API: HTTP request with PoW signature
-    Note over SDK,API: AES-GCM encrypted<br/>AES-CBC signed<br/>Anonymized data
+    Note over SDK,API: AES-GCM encrypted<br/>AES-CBC signed
 
     API->>API: Validate PoW & license
     API->>API: Process request
@@ -43,24 +44,23 @@ sequenceDiagram
 
 ### Technical Components
 
-- **PoW System**: Memory-hard challenges (12-1024KB, 800-4000 AES iterations) with dynamic parameters for FPGA resistance
-- **Data Anonymization**: Comprehensive PII/secrets masking before AI troubleshooting transmission
-- **Cryptographic Validation**: Ed25519 + SHA-512 signatures validate **package downloads**; AES-GCM authentication tags protect every request/response chunk
+- **PoW System**: Memory-hard challenges whose parameters are set by each ticket, for FPGA resistance
+- **Data Anonymization**: A client-side anonymizer the integrating application may apply before it sends data
+- **Cryptographic Validation**: Ed25519 + SHA-512 signatures validate **package downloads** (over the bare SHA-512) and **license modules** (over `models.LicenseModuleDigest` of their SHA-512); AES-GCM authentication tags protect every request/response chunk
 - **Type Safety**: 24 strongly-typed call patterns with built-in Go model validation
 - **Streaming Architecture**: Memory-efficient processing with AES-GCM chunk encryption (16KB default)
 
 ## Authentication & Security
 
 All API endpoints require:
-- **PoW Challenge**: Memory-hard proof-of-work with more than 206M parameter combinations
-- **License Validation**: Cryptographic license verification with tier-based access control
+- **PoW Challenge**: Memory-hard proof-of-work with parameters that vary per ticket
+- **License Validation**: Cryptographic verification of the licence key, when the call carries one, with tier-based access control
 - **End-to-End Encryption**: AES-128-GCM streaming encryption with 16KB chunks
-- **Forward Secrecy**: Daily server key rotation with deterministic derivation
-- **Data Anonymization**: Mandatory PII/secrets masking for all AI troubleshooting requests
+- **Session Keys**: A fresh session key for every request, sealed to the server's public key; the proof-of-work key changes daily
 
-## Terms of Service Compliance
+## Terms of Use
 
-⚠️ **Important Legal Notice:** Access to VXControl Cloud Platform services requires compliance with [Terms of Service](TERMS_OF_SERVICE.md).
+⚠️ **Important Legal Notice:** Use of PentAGI Cloud services is subject to the [Terms of Use](TERMS_OF_SERVICE.md), and some services require a licence key; for PentAGI Enterprise the EULA governs.
 
 The platform provides access to sensitive cybersecurity capabilities including:
 - **Threat Intelligence**: IOC/IOA databases and real-time threat analysis
@@ -70,7 +70,7 @@ The platform provides access to sensitive cybersecurity capabilities including:
 
 **These services may ONLY be used for authorized, ethical, and legal cybersecurity purposes.**
 
-Before using any API endpoints, ensure you understand and comply with all applicable terms and restrictions outlined in the [Terms of Service](TERMS_OF_SERVICE.md).
+Before using any API endpoints, ensure you understand and comply with all applicable terms and restrictions outlined in the [Terms of Use](TERMS_OF_SERVICE.md).
 
 ## API Services
 
@@ -79,8 +79,8 @@ Before using any API endpoints, ensure you understand and comply with all applic
 | **Update Service** | `update.pentagi.com` | `/api/v1/proxy/updates/check` | POST | [CheckUpdatesRequest](models/update.go) → [CheckUpdatesResponse](models/update.go) | ✓ Production | Check for component updates with changelogs |
 | **Package Service** | `update.pentagi.com` | `/api/v1/proxy/packages/info` | GET | [PackageInfoRequest](models/package.go) → [PackageInfoResponse](models/package.go) | ✓ Production | Get package metadata and signatures |
 | **Package Service** | `update.pentagi.com` | `/api/v1/proxy/packages/download` | GET | [DownloadPackageRequest](models/package.go) → Binary stream | ✓ Production | Download signed packages with validation |
-| **Support Service** | `support.pentagi.com` | `/api/v1/proxy/errors/report` | POST | [SupportErrorRequest](models/support.go) → [SupportErrorResponse](models/support.go) | ✓ Production | Automated error reporting with data anonymization |
-| **Support Service** | `support.pentagi.com` | `/api/v1/proxy/support/issues` | POST | [SupportIssueRequest](models/support.go) → [SupportIssueResponse](models/support.go) | ✓ Production | Create support issues with AI assistance and PII protection; `error_details` is read as a [SupportIssueDetails](#support-issue-format) document, and the request has [limits](#support-issue-format); endpoint code `support_issues` |
+| **Support Service** | `support.pentagi.com` | `/api/v1/proxy/errors/report` | POST | [SupportErrorRequest](models/support.go) → [SupportErrorResponse](models/support.go) | ✓ Production | Error reporting; the client may anonymise the data first |
+| **Support Service** | `support.pentagi.com` | `/api/v1/proxy/support/issues` | POST | [SupportIssueRequest](models/support.go) → [SupportIssueResponse](models/support.go) | ✓ Production | Create support issues with AI assistance; the client may anonymise the data first; `error_details` is read as a [SupportIssueDetails](#support-issue-format) document, and the request has [limits](#support-issue-format); endpoint code `support_issues` |
 | **Support Service** | `support.pentagi.com` | `/api/v1/proxy/support/issues/:issueID/status` | GET | Path args → [SupportIssueStatusResponse](models/support.go) | ✓ Production | What runs on an issue — `processing`, `processed` or `answering` — and when its conversation last changed (see [Support Issue Status Format](#support-issue-status-format)); endpoint code `support_issue_status` |
 | **Support Service** | `support.pentagi.com` | `/api/v1/proxy/support/issues/:issueID/messages` | GET | Path args → [SupportIssueMessagesResponse](models/support.go) | ✓ Production | The conversation of an issue as the server keeps it: the questions, the steps of the assistant and its answers, `[]` before the first question; endpoint code `support_issue_messages` |
 | **AI Investigation** | `support.pentagi.com` | `/api/v1/proxy/support/investigate` | POST | [SupportInvestigationRequest](models/support.go) → [SupportInvestigationResponse](models/support.go) | ✓ Production | AI-powered troubleshooting with secure data handling: one question of the conversation of an issue, taken only while the issue is `processed`; endpoint code `support_investigate` |
@@ -88,8 +88,9 @@ Before using any API endpoints, ensure you understand and comply with all applic
 | **Language Models** | `features.pentagi.com` | `/api/v1/proxy/llm/embeddings` | POST | embeddings request of the OpenAI API, `input` a string or an array of strings (token ids are refused) → event stream (`result`) | ✓ Production | Embeddings of the agents of a licence with Cloud LLM |
 | **Language Models** | `features.pentagi.com` | `/api/v1/proxy/llm/models` | GET | → [LLMModelsResponse](models/llm.go) | ✓ Production | The agents a licence may name in `model`, with what each takes: the list object of the OpenAI API (`{"object":"list","data":[…]}`) in the envelope of every JSON answer, each agent a model object whose `id` is its name |
 | **Licence Status** | `update.pentagi.com` | `/api/v1/proxy/license/status` | GET | → [LicenseStatusResponse](models/license.go) | ✓ Production | The tier of a licence, the features it enables and the share of each of its quotas of the support assistant and of Cloud LLM used today and this month, in whole percent (`-1` for no ceiling); endpoint code `license_status` |
-| **Threat Intelligence** | `ti.vxcontrol.com` | `/api/v1/threats/query` | POST | ThreatQueryRequest → ThreatIntelResponse | 🚧 Development | Access real-time threat intelligence and IOC databases |
-| **Vulnerability Assessment** | `ti.vxcontrol.com` | `/api/v1/vulns/scan` | POST | VulnScanRequest → VulnScanResponse | 🚧 Development | Vulnerability assessment and exploit database queries |
+| **Licence Module** | `update.pentagi.com` | `/api/v1/proxy/license/module` | GET | `module_id` (the module described, see [Licence Module Format](#licence-module-format)) → Binary stream | ✓ Production | The bytes of the module described, refused as `License.ModuleSuperseded` when another one is served now; endpoint code `license_module` |
+| **Threat Intelligence** | `ti.vxcontrol.com` | `/api/v1/threats/query` | POST | ThreatQueryRequest → ThreatIntelResponse | 🚧 Planned, not served | Access real-time threat intelligence and IOC databases |
+| **Vulnerability Assessment** | `ti.vxcontrol.com` | `/api/v1/vulns/scan` | POST | VulnScanRequest → VulnScanResponse | 🚧 Planned, not served | Vulnerability assessment and exploit database queries |
 | **Knowledge Base** | `kb.vxcontrol.com` | `/api/v1/knowledge/search` | GET | Query params → KnowledgeResponse | 🚧 Development | Search cybersecurity knowledge base (MITRE ATT&CK, IOCs, vulnerabilities) |
 | **Computational Resources** | `compute.pentagi.com` | `/api/v1/compute/submit` | POST | ComputeTaskRequest → ComputeTaskResponse | 🚧 Development | Submit intensive computational tasks (password cracking, analysis) |
 | **Computational Resources** | `compute.pentagi.com` | `/api/v1/compute/results/:taskId` | GET | Path args → ComputeResultResponse | 🚧 Development | Retrieve computational task results |
@@ -100,7 +101,7 @@ Before using any API endpoints, ensure you understand and comply with all applic
 
 1. **SDK Configuration**: Define endpoints with `CallConfig` structs
 2. **Function Generation**: SDK creates typed functions for each endpoint
-3. **Data Anonymization**: Mandatory PII/secrets masking for support services
+3. **Data Anonymization**: The client may apply the anonymizer to the data it sends; what a service receives depends on the feature and on the client
 4. **PoW Challenge**: Automatic challenge solving before each request
 5. **Request Signing**: AES-CBC signature (nonce + timestamp + content length + CRC32) with installation ID XOR-masking
 6. **Key Exchange**: NaCL box (Curve25519) encrypts the ephemeral session key to the server
@@ -110,9 +111,9 @@ Before using any API endpoints, ensure you understand and comply with all applic
 ### Core Components
 
 - **Call Patterns**: 24 function types handle different request/response scenarios
-- **Data Anonymizer**: Mandatory PII/secrets masking engine with 300+ pattern recognition
+- **Data Anonymizer**: Optional client-side PII/secrets masking engine with 300+ patterns
 - **Transport Layer**: HTTP/2 with connection pooling and custom TLS configuration
-- **Cryptographic Engine**: NaCL box (Curve25519) for session-key exchange + AES-128-GCM for body encryption + AES-128-CBC for PoW request signatures; Ed25519 + SHA-512 used only for package-integrity validation (`models/signature.go`)
+- **Cryptographic Engine**: NaCL box (Curve25519) for session-key exchange + AES-128-GCM for body encryption + AES-128-CBC for PoW request signatures; Ed25519 + SHA-512 used only to validate downloads (`models/signature.go`): a package over its bare SHA-512, a license module over `models.LicenseModuleDigest` of its SHA-512 (`models/license.go`)
 - **PoW Solver**: Memory-hard algorithm implementation with configurable timeout
 - **License Manager**: Cryptographic license validation and tier enforcement
 
@@ -130,6 +131,7 @@ All API requests and responses use strongly-typed Go models with built-in valida
 - **Signature Validation**: [models/signature.go](models/signature.go) - Ed25519 cryptographic signature validation
 - **Language Models**: [models/llm.go](models/llm.go) - The list of the agents of Cloud LLM (the list object of the OpenAI API, with the bounds and the `supported_parameters` of each agent) and the events of an LLM call (`chunk`, `result`); [llm/](llm/) is the client that speaks the OpenAI API over these calls
 - **Licence Status**: [models/license.go](models/license.go) - The tier of a licence, the features it enables and the share of its quotas used, in whole percent (see [Licence Status Format](#licence-status-format))
+- **Licence Module**: [models/license.go](models/license.go) - The description of the license module served for a licence, `LicenseModuleInfo` (see [Licence Module Format](#licence-module-format)); [licensing/](licensing/) is the client that downloads the module it describes
 - **Response Envelope**: [models/envelope.go](models/envelope.go) - `ParseEnvelope[T]` unwraps the `{"status":…,"data":…}` wrapper every JSON response arrives in
 - **Data Anonymization**: [anonymizer/](anonymizer/) - PII/secrets masking with pattern recognition
 - **System Utilities**: [system/](system/) - Cross-platform installation ID generation and machine identification
@@ -197,9 +199,9 @@ a `Reader`-body call cannot be rewound after a failed attempt, so the SDK forces
 
 ## Data Anonymization
 
-### Mandatory PII Protection
+### Client-Side PII Protection
 
-All support and AI troubleshooting requests require data anonymization before transmission. The process is automatic and comprehensive:
+The SDK provides an anonymizer that the integrating application may apply to data before it sends it, as the support-errors and support-issues examples do. The SDK does not anonymise anything on its own; each service receives the data the client sends to it. The anonymizer covers:
 
 **Protected Data Categories**:
 - **Credentials**: API keys, tokens, passwords, database connections
@@ -235,8 +237,7 @@ The platform uses a sophisticated memory-hard proof-of-work system designed for 
 - **Memory Requirement**: Dynamic allocation with step variation (prevents FPGA optimization)
 - **Sequential Operations**: Variable AES iterations with configurable key rotation intervals
 - **Memory Access**: Cryptographically derived offsets with uniform distribution
-- **Parameter Combinations**: Millions of configurations prevent hardware specialization
-- **Performance**: Exponential difficulty scaling based on server load and threat level
+- **Parameter Variation**: Parameters vary per ticket, which prevents hardware specialization
 
 ### Dynamic Anti-FPGA Protection
 
@@ -256,8 +257,7 @@ type TicketSettings struct {
 
 - **Multi-Threading Resistance**: High difficulty levels provide significant delays even with multi-core attacks
 - **GPU Resistance**: Memory-hard properties substantially reduce GPU optimization advantages
-- **Daily Key Isolation**: Regular key rotation prevents long-term cryptanalysis attacks
-- **Deterministic Synchronization**: All servers use identical daily keys through cryptographic derivation
+- **Daily Key**: The proof-of-work key changes daily
 
 ## Error Handling
 
@@ -277,8 +277,9 @@ All endpoints return structured error responses. The SDK parses them into typed 
 | `BadGateway` | `sdk.ErrBadGateway` | Yes (3s) | Temporary backend overload |
 | `Internal` | `sdk.ErrServerInternal` | Yes (3s) | Temporary server error |
 | `BadRequest` | `sdk.ErrBadRequest` | No | Invalid request format |
-| `Forbidden` | `sdk.ErrForbidden` | No | Invalid license or authentication |
-| `NotFound` | `sdk.ErrNotFound` | No | Unknown endpoint |
+| `Forbidden` | `sdk.ErrForbidden` | No | Invalid license, a license the endpoint does not serve, or an unknown endpoint, `Name`, path or method |
+| `NotFound` | `sdk.ErrNotFound` | No | A named resource that does not exist, or a host the endpoint is not served on |
+| `Blocked` | `sdk.ErrBlocked` | Never | The client is temporarily blocked |
 | `TooManyRequests` | `*sdk.RateLimitError` (General) | Yes (5s) | General rate limit |
 | `TooManyRequestsRPM` | `*sdk.RateLimitError` (RPM) | Yes (Retry-After, max 10s) | Per-minute window |
 | `TooManyRequestsRPH` | `*sdk.RateLimitError` (RPH) | No | Per-hour window — too long to auto-retry |
@@ -286,6 +287,14 @@ All endpoints return structured error responses. The SDK parses them into typed 
 | `QuotaBlocked` | `*sdk.QuotaError` (Blocked) | Never | Endpoint unavailable for this license tier |
 | `QuotaExceededDaily` | `*sdk.QuotaError` (Daily) | No (Retry-After) | Daily quota exhausted |
 | `QuotaExceededMonthly` | `*sdk.QuotaError` (Monthly) | No (Retry-After) | Monthly quota exhausted |
+| `RequestClockSkew` | `*sdk.ClockSkewError` (`sdk.ErrRequestClockSkew`) | No | The time of the request, read from the host clock, is outside the window the proxy accepts; the `X-Server-Time` header (RFC 3339) carries the proxy's time, which the error holds as `ServerTime` beside `Skew()` |
+
+The update and package endpoints refuse some calls with codes of their own, which the SDK maps to no sentinel: the error of the call matches `sdk.ErrRequestFailed` under `errors.Is` and its message begins with the code. Neither is retried.
+
+| Server Code | HTTP | Meaning |
+|-------------|------|---------|
+| `Updates.InvalidRequest` | 400 | The request cannot be read or is not valid |
+| `Updates.NotFound` | 404 | The package asked for does not exist |
 
 The support endpoints refuse some calls with codes of their own, which the SDK maps to no sentinel: the error of the call matches `sdk.ErrRequestFailed` under `errors.Is` and its message begins with the code (`Support.Busy: request execution failed`); inside an event stream the code is the `Code` of the `*sse.Error`. None of them is retried.
 
@@ -295,6 +304,13 @@ The support endpoints refuse some calls with codes of their own, which the SDK m
 | `Support.InvalidData` | 500 | The request was read and is not valid: what `Valid` of its model refuses, the [limits of an issue](#support-issue-format) included |
 | `Support.NotFound` | 404 | No issue of this ID belongs to the licence of the caller |
 | `Support.Busy` | 409 | A question sent while the issue is not `processed`: its logs are still processed, or another question of it is being answered (see [Support Issue Status Format](#support-issue-status-format)) |
+
+The download of a licence module refuses with two codes of its own, mapped the same way; `licensing.Client.DownloadModule` gives them errors of the [licensing](licensing/) package. Neither is retried.
+
+| Server Code | HTTP | Error of `DownloadModule` | Meaning |
+|-------------|------|---------------------------|---------|
+| `License.ModuleSuperseded` | 409 | `licensing.ErrModuleSuperseded` | Another module is served now than the one the download named: ask for the description again |
+| `License.ModuleNotReady` | 503 | `licensing.ErrModuleNotReady` | No module is served for the licence now: ask for the description again later, when it says how long to wait |
 
 ### Retry-After Header
 
@@ -327,22 +343,22 @@ configs := []sdk.CallConfig{
     {
         Calls:  []any{&checkUpdates},
         Host:   "update.pentagi.com",
-        Name:   "check-updates",
+        Name:   "updates_check",
         Path:   "/api/v1/proxy/updates/check",
         Method: sdk.CallMethodPOST,
     },
     {
         Calls:  []any{&reportError},
         Host:   "support.pentagi.com",
-        Name:   "report-error",
+        Name:   "errors_report",
         Path:   "/api/v1/proxy/errors/report",
         Method: sdk.CallMethodPOST,
     },
     {
         Calls:  []any{&queryThreats},
-        Host:   "ti.vxcontrol.com",
-        Name:   "threat-intelligence",
-        Path:   "/api/v1/threats/query",
+        Host:   "service.example.com", // placeholder: a service of your own
+        Name:   "your_endpoint",
+        Path:   "/api/v1/your/path",
         Method: sdk.CallMethodPOST,
     },
 }
@@ -374,7 +390,7 @@ for name, s := range statuses {
 }
 
 // Re-probe later (e.g. after a rate-limit cooldown)
-_ = statuses["check-updates"].Recheck(ctx)
+_ = statuses["updates_check"].Recheck(ctx)
 ```
 ```
 
@@ -419,8 +435,8 @@ configs := []sdk.CallConfig{
 // - AES-GCM streaming encryption
 // - Retry logic with exponential backoff
 
-// Client must initialize anonymizer for support services:
-// - Mandatory PII/secrets masking before AI transmission
+// A client that sends free text to support services may initialize the anonymizer:
+// - PII/secrets masking before transmission
 // - Comprehensive pattern recognition (credentials, emails, IPs, etc.)
 // - Structure-preserving anonymization maintains analytical value
 anonymizer, _ := anonymizer.NewAnonymizer(nil)
@@ -560,7 +576,7 @@ json.Unmarshal(body, &resp)
 resp, err := models.ParseEnvelope[models.CheckUpdatesResponse](body)
 ```
 
-Event streams (`text/event-stream`) are the exception, not wrapped in this envelope: the answer of a streamed investigation (`SupportInvestigationRequest.UseStream: true`) and the answer of every LLM call (`/api/v1/proxy/llm/chat/completions`, `/api/v1/proxy/llm/embeddings`). A refusal before such a stream begins, and the list of agents (`/api/v1/proxy/llm/models`), are enveloped like any JSON answer; a package download is the file itself.
+Event streams (`text/event-stream`) are the exception, not wrapped in this envelope: the answer of a streamed investigation (`SupportInvestigationRequest.UseStream: true`) and the answer of every LLM call (`/api/v1/proxy/llm/chat/completions`, `/api/v1/proxy/llm/embeddings`). A refusal before such a stream begins, and the list of agents (`/api/v1/proxy/llm/models`), are enveloped like any JSON answer; a package download and a module download are the file itself.
 
 ### Event Stream Format
 
@@ -616,6 +632,45 @@ err = status.Valid() // refuse what is not a status rather than read it as one w
 
 Every share is a whole percent of the quota used, with the overrides of the licence applied, computed by the server: `0` is nothing used, any use is at least `1`, a share between is rounded down and stays below `100`, and `100` is a quota used up — the next call of that limit is refused (`QuotaExceededDaily`, `QuotaExceededMonthly`). `-1` (`models.LicenseQuotaUnlimited`) is no ceiling in that period; `tokens` is `-1` only when neither kind of token has one. A limit the licence cannot call, or calls with no quota kept, is not in the list; `quotas` is `[]` for none, never null. The endpoint counts against no quota and has rate limits of its own per licence; a licence the API does not serve is refused, either as `Forbidden` like any other call of it or as `QuotaBlocked`: read both as the licence not served, not as a failure to retry.
 
+### Licence Module Format
+
+The client of the [licensing](licensing/) package downloads the license module of a licence in one call, `license_module` (`GET /api/v1/proxy/license/module`), and verifies the download as it streams; replace a module before its `refresh_by`. The caller supplies the `models.LicenseModuleInfo` the download needs:
+
+```go
+client, err := licensing.New("update.pentagi.com",
+    sdk.WithClient("MySecTool", "1.0.0"),
+    sdk.WithInstallationID(system.GetInstallationID()),
+    sdk.WithLicenseKey(licenseKey),
+)
+var info models.LicenseModuleInfo // supplied by the caller
+if err == nil && info.Ready && info.ModuleID != runningModuleID {
+    err = client.DownloadModule(ctx, info, file) // put the file in place only on nil
+}
+```
+
+The description has one of two forms: a module served, and none served yet.
+
+```json
+{"ready":true,"module_id":"9f86d081884c7d659a2feaa0c55ad015","built_at":"2026-11-04T09:30:00Z","refresh_by":"2026-12-04T09:30:00Z","size":5579009,"hash":"4867c051097fca37bdc60f5f0669a694f31032c3ff4419f02b51ce187e9cc1d8","signature":"/qVFpJ8CTXgF4DZmsIsztDiLg7Wdr2OUolaWnNCBGB7CP8XHq7Mb9t8wo4vOU9tC3iiPKMaDiz1wN04KfyJxCw","retry_after_seconds":0}
+{"ready":false,"retry_after_seconds":300}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `ready` | whether a module is served for the licence now |
+| `module_id` | the ID of the module: 32 lowercase hex digits |
+| `built_at` / `refresh_by` | when the module was built, and by when the installation needs a newer one (RFC 3339, UTC) |
+| `size` | the length of the module in bytes, 1 to 40 MiB (`models.LicenseModuleMaxSize`) |
+| `hash` | the SHA-256 of the module, in lowercase hex |
+| `signature` | the Ed25519 signature, in the form `PackageInfoResponse.Signature` carries, over `models.LicenseModuleDigest` of the module's SHA-512: `SHA-512("pentagi/license-module/v1\x00" ‖ SHA-512(module))`, so a module's signature never verifies as a package's |
+| `retry_after_seconds` | when no module is served, in how many seconds to ask again (at least 1); `0` when one is |
+
+When `ready` is false, only `ready` and `retry_after_seconds` are present. `LicenseModuleInfo.Valid` refuses a description that is not one of the two forms, and `DownloadModule` refuses one that is not ready or not valid before it asks for anything.
+
+The download names the module it expects (`module_id`) and answers its bytes, which `DownloadModule` writes to the caller's writer as they arrive. Their length, their SHA-256 and their signature are checked in the same pass, and a byte past `size` is refused before it is written; a mismatch is `licensing.ErrModuleMismatch`. The module is verified only once its last byte is written, so after any error the writer holds a partial or unverified module: download into a file that is put in place only after `DownloadModule` returned nil. A module the API replaced since its description was given is refused as `License.ModuleSuperseded` (`licensing.ErrModuleSuperseded`): get a new description. The download has no deadline of its own beyond the context of the call.
+
+The download only delivers a module: whether it is one of this licence, and whether it opens, is for the runtime of the module to check. A licence whose key carries `sdk.LicenseFlagOffline` is served like any other; the flag only lets its installation also be given a module by hand. The endpoint counts against no quota and has rate limits of its own per licence: after a `*sdk.RateLimitError` ask again no sooner than `sdk.RetryAfterOf(err)`, and download only a module whose ID is not the one that runs. A licence the API does not serve is refused, either as `Forbidden` or as `QuotaBlocked`.
+
 ### Support Issue Format
 
 The endpoint `support_issues` (`POST /api/v1/proxy/support/issues`) creates an issue from a `models.SupportIssueRequest` and answers `201` with its `issue_id` (`models.SupportIssueResponse`) — the ID every later call of the issue names. An issue is read only by its ID; there is no list of them.
@@ -627,9 +682,9 @@ The endpoint `support_issues` (`POST /api/v1/proxy/support/issues`) creates an i
 | the body of the request | `models.MaxSupportIssueRequestBytes`: 2 MiB (2097152 bytes) | `Support.InvalidRequest` |
 | the lines of logs, of all components together | `models.MaxSupportIssueLogLines`: 2000 | `Support.InvalidData` |
 | one line of logs | 1–8192 characters | `Support.InvalidData` |
-| `error_details`, as compact JSON with `<`, `>` and `&` written as themselves | `models.MaxSupportIssueDetailsBytes`: 256 KiB (262144 bytes) | `Support.InvalidData` |
+| `error_details`, its value as `json.Encoder` writes it after `SetEscapeHTML(false)`, numbers as they were written | `models.MaxSupportIssueDetailsBytes`: 256 KiB (262144 bytes) | `Support.InvalidData` |
 
-**Error Details.** `error_details` is any JSON value: the server keeps it with the issue as it arrived, and other clients send forms of their own. A document of the schema `models.SupportIssueDetails` is what the support assistant reads as the context of the issue — what the user wrote about the problem and what the product could tell about itself and the flow concerned; a value of any other form is kept and tells the assistant nothing. The schema is versioned by `schema` (now `1`) and grows by adding fields: a reader skips the fields it does not know, and a document of a later schema is read by the fields of schema 1.
+**Error Details.** `error_details` is any JSON value: the server keeps its value with the issue, and other clients send forms of their own. A document of the schema `models.SupportIssueDetails` is what the support assistant reads as the context of the issue — what the user wrote about the problem and what the product could tell about itself and the flow concerned; a value of any other form is kept and tells the assistant nothing. The schema is versioned by `schema` (now `1`) and grows by adding fields: a reader skips the fields it does not know, and a document of a later schema is read by the fields of schema 1.
 
 | Part | Fields | Meaning |
 |------|--------|---------|
@@ -718,24 +773,25 @@ Request and response bodies use AES-GCM chunk encryption:
 
 **Validation Process**:
 1. **Nonce Verification**: XOR unmask with installation ID
-2. **Timestamp Check**: Configurable time window validation
+2. **Timestamp Check**: The time of the request must lie within the window the server accepts, otherwise `RequestClockSkew`
 3. **Content Length**: Match actual request body size
 4. **Integrity Check**: CRC32 validation of signature payload
 5. **AES Decryption**: CBC decrypt with PoW-derived key
+6. **Binding** (version 2): the signature also binds the method, the URL, the nonce and the installation ID
 
 ### Client-Side Anonymization
 
-All support and AI investigation requests undergo mandatory data anonymization before transmission:
+A client may anonymise the data it sends with the anonymizer package; the example below does so for support and investigation requests:
 
 **Implementation**:
 ```go
 type Client struct {
     errorReport  sdk.CallReqBytesRespBytes
     issueCreate  sdk.CallReqBytesRespBytes
-    anonymizer   anonymizer.Anonymizer  // required for support services
+    anonymizer   anonymizer.Anonymizer  // applied by the application, as in the examples
 }
 
-// Mandatory anonymization - requests fail if anonymization fails
+// The example application anonymises before sending and stops if that fails
 func (c *Client) ReportError(ctx context.Context,
     component models.ComponentType, errorDetails map[string]any) error {
 

@@ -68,9 +68,6 @@ func (ct ComponentType) Value() (driver.Value, error) {
 // forgotten here fails Valid() and is rejected on read, which is loud; the
 // reverse — a constant listed here and nowhere else — cannot happen, because
 // this list is written in terms of the constants.
-//
-// The order is the order of the PostgreSQL enum and the ClickHouse Enum8, so a
-// reader comparing the three has a chance.
 var AllComponentTypes = []ComponentType{
 	ComponentTypePentagi,
 	ComponentTypeScraper,

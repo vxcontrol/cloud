@@ -15,6 +15,8 @@
 //     ParseEnvelope[T] to unwrap the {"status":…,"data":…} envelope every JSON response arrives in
 //   - llm: a client of the language models of the API that speaks the OpenAI API to its
 //     caller: give a library of that API llm.BaseURL and an llm.Client as its HTTP client
+//   - licensing: a client of the license module of a licence: DownloadModule streams the
+//     module a description names and verifies it against that description
 //   - anonymizer: Comprehensive PII/secrets masking engine with 300+ pattern recognition
 //   - system: Cross-platform utilities for stable installation ID generation
 //   - examples: Production-ready integration examples and usage patterns
@@ -65,10 +67,10 @@
 // Security-First Design:
 //   - Memory-hard proof-of-work protection against abuse and DDoS attacks
 //   - NaCL (Curve25519) key exchange with AES-CBC PoW signatures and CRC32 integrity
-//   - AES-GCM end-to-end streaming encryption with forward secrecy
+//   - AES-GCM end-to-end streaming encryption with a fresh session key for every request
 //   - Ed25519 package-integrity validation (models/signature.go)
 //   - Stable machine identification for installation tracking
-//   - Mandatory PII/secrets anonymization for AI troubleshooting
+//   - Client-side PII/secrets anonymizer an application may apply before sending
 //   - Structured rate-limit and quota errors (*RateLimitError / *QuotaError) with
 //     server-advertised Retry-After; use RetryAfterOf(err) to extract it
 //
@@ -90,7 +92,7 @@
 //   - Update Service: Component update checking with changelogs
 //   - Package Service: Secure package downloads with signature validation
 //   - Support Service: Automated error reporting with AI assistance
-//   - AI Investigation: Interactive troubleshooting with comprehensive anonymization
+//   - AI Investigation: Interactive troubleshooting
 //
 // Development Services:
 //   - Threat Intelligence: IOC/IOA database access and threat analysis
@@ -216,8 +218,8 @@
 //
 // # VXControl Cloud Services Access
 //
-// Important: While the SDK code is free (MIT), accessing VXControl Cloud Services
-// requires a valid License Key and compliance with separate Terms of Service.
+// Important: While the SDK code is free (MIT), using PentAGI Cloud services is subject
+// to the Terms of Use (TERMS_OF_SERVICE.md), and some services require a valid License Key.
 //
 // The SDK provides client-side functionality to integrate with VXControl Cloud Platform,
 // but actual access to sensitive cybersecurity data, threat intelligence, vulnerability
@@ -231,7 +233,7 @@
 // Cloud Services Usage Model:
 //
 //	SDK Code: MIT licensed, free to use and modify
-//	Cloud API Access: Requires License Key (register at https://console.pentagi.com/)
+//	Cloud API Access: some services require a License Key (register at https://console.pentagi.com/)
 //	Service Tiers: Free, Professional, and Enterprise levels available
 //	Usage Restrictions: Governed by separate Terms of Service
 //

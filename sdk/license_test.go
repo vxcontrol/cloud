@@ -3,6 +3,7 @@ package sdk
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -417,15 +418,26 @@ func TestLicenseInfoMethods(t *testing.T) {
 			expectedExpired: false, // IsExpired() returns false for perpetual type
 		},
 		{
-			name: "invalid_future_created_at",
+			name: "valid_created_at_the_start_of_tomorrow",
 			license: LicenseInfo{
 				Type:      LicenseExpireable,
 				Flags:     [7]bool{true, false, false, false, false, false, false},
-				ExpiredAt: now.AddDate(0, 0, 10), // future expiry
-				CreatedAt: tomorrow,              // future creation date
+				ExpiredAt: now.AddDate(0, 0, 10),
+				CreatedAt: time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC),
 			},
-			expectedValid:   false, // fails future CreatedAt check
-			expectedExpired: false, // ExpiredAt.Before(now) = false
+			expectedValid:   true,
+			expectedExpired: false,
+		},
+		{
+			name: "invalid_created_at_the_start_of_the_day_after_tomorrow",
+			license: LicenseInfo{
+				Type:      LicenseExpireable,
+				Flags:     [7]bool{true, false, false, false, false, false, false},
+				ExpiredAt: now.AddDate(0, 0, 10),
+				CreatedAt: time.Date(now.Year(), now.Month(), now.Day()+2, 0, 0, 0, 0, time.UTC),
+			},
+			expectedValid:   false,
+			expectedExpired: false,
 		},
 		{
 			name: "invalid_zero_created_at",
@@ -536,14 +548,93 @@ func loadSDKTestData(t *testing.T) *testData {
 // A permission is read by its name: each flag of a key allows only what it is the flag
 // of, and a place past the flags allows nothing.
 func TestLicenseInfoAllows(t *testing.T) {
-	for _, flag := range []LicenseFlag{LicenseFlagSupport, LicenseFlagUpdates, LicenseFlagKnowledgeBase, LicenseFlagCloudLLM} {
+	for _, flag := range []LicenseFlag{LicenseFlagSupport, LicenseFlagUpdates, LicenseFlagKnowledgeBase, LicenseFlagCloudLLM, LicenseFlagOffline} {
 		var info LicenseInfo
 		info.Flags[flag] = true
-		for _, other := range []LicenseFlag{LicenseFlagSupport, LicenseFlagUpdates, LicenseFlagKnowledgeBase, LicenseFlagCloudLLM} {
+		for _, other := range []LicenseFlag{LicenseFlagSupport, LicenseFlagUpdates, LicenseFlagKnowledgeBase, LicenseFlagCloudLLM, LicenseFlagOffline} {
 			assert.Equal(t, flag == other, info.Allows(other), "flag %d asked for %d", flag, other)
 		}
 	}
 	full := LicenseInfo{Flags: [7]bool{true, true, true, true, true, true, true}}
 	assert.False(t, full.Allows(LicenseFlag(-1)))
 	assert.False(t, full.Allows(LicenseFlag(len(full.Flags))))
+}
+
+// perpetual test keys dated 2026-11-04, one flag each.
+func TestIntrospectLicenseKeyReadsEachFlagByItsName(t *testing.T) {
+	all := []LicenseFlag{LicenseFlagSupport, LicenseFlagUpdates, LicenseFlagKnowledgeBase, LicenseFlagCloudLLM, LicenseFlagOffline}
+	for flag, key := range map[LicenseFlag]string{
+		LicenseFlagSupport:       "VDIZ-WPMO-TPUP-QVVA",
+		LicenseFlagUpdates:       "KETZ-2WWA-S7NG-KD3M",
+		LicenseFlagKnowledgeBase: "9STD-LDT3-Y74P-FNYZ",
+		LicenseFlagCloudLLM:      "QSAU-RZUZ-3W2H-JDKK",
+		LicenseFlagOffline:       "YMBI-XW6H-ATJG-F9RU",
+	} {
+		info, err := IntrospectLicenseKey(key)
+		if !assert.NoError(t, err, key) {
+			continue
+		}
+		assert.Equal(t, LicensePerpetual, info.Type, key)
+		for _, other := range all {
+			assert.Equal(t, flag == other, info.Allows(other), "the key of flag %d asked for %d", flag, other)
+		}
+	}
+}
+
+// valid_expireable and valid_perpetual of testdata are dated 2025-09-16.
+func TestLicense_IntrospectLicenseKey_AcceptsAKeyDatedTomorrow(t *testing.T) {
+	keys := map[string]string{}
+	for _, license := range loadSDKTestData(t).Licenses {
+		keys[license.Name] = license.Key
+	}
+	keyDate := time.Date(2025, 9, 16, 0, 0, 0, 0, time.UTC)
+
+	for _, tc := range []struct {
+		name     string
+		key      string
+		hostTime time.Time
+	}{
+		{"a host on the date of the key", "valid_expireable", time.Date(2025, 9, 16, 0, 0, 0, 0, time.UTC)},
+		{"a host at the start of the day before", "valid_expireable", time.Date(2025, 9, 15, 0, 0, 0, 0, time.UTC)},
+		{"a host at the end of the day before", "valid_expireable", time.Date(2025, 9, 15, 23, 59, 59, 0, time.UTC)},
+		{"a perpetual key on a host a day behind", "valid_perpetual", time.Date(2025, 9, 15, 3, 0, 0, 0, time.UTC)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fixHostClock(t, tc.hostTime)
+
+			info, err := IntrospectLicenseKey(keys[tc.key])
+			if err != nil {
+				t.Fatalf("the key is refused: %v", err)
+			}
+			if !info.CreatedAt.Equal(keyDate) {
+				t.Errorf("the key is dated %v", info.CreatedAt)
+			}
+			if !info.IsValid() {
+				t.Error("IsValid refuses the key the introspection took")
+			}
+		})
+	}
+
+	t.Run("a key dated two days ahead names both dates", func(t *testing.T) {
+		fixHostClock(t, time.Date(2025, 9, 14, 23, 59, 59, 0, time.UTC))
+
+		info, err := IntrospectLicenseKey(keys["valid_expireable"])
+		if info != nil {
+			t.Errorf("the key is read as %+v", info)
+		}
+		var dated *LicenseDateError
+		if !errors.As(err, &dated) {
+			t.Fatalf("got %v, want a *LicenseDateError", err)
+		}
+		if !dated.CreatedAt.Equal(keyDate) || !dated.HostDate.Equal(time.Date(2025, 9, 14, 0, 0, 0, 0, time.UTC)) {
+			t.Errorf("the key is dated %v, the host %v", dated.CreatedAt, dated.HostDate)
+		}
+		if !errors.Is(err, ErrInvalidLicence) {
+			t.Error("a caller that checks ErrInvalidLicence takes the key")
+		}
+		want := "invalid license: the key is dated 2025-09-16, after the host's date 2025-09-14: check the host clock"
+		if err.Error() != want {
+			t.Errorf("the message is %q", err.Error())
+		}
+	})
 }

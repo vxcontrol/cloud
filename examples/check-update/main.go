@@ -102,8 +102,9 @@ func NewClient(serverHost, licenseKey, caPath string) (*Client, error) {
 func (c *Client) CheckUpdates(
 	ctx context.Context, req models.CheckUpdatesRequest,
 ) (models.CheckUpdatesResponse, error) {
-	// Validate before sending: the service answers a malformed request with a
-	// server error, which is indistinguishable from an outage on the client side.
+	// Validate before sending: the service refuses a malformed request as
+	// Updates.InvalidRequest (400), which matches sdk.ErrRequestFailed and is not
+	// an outage; validating first gives the reason locally.
 	if err := req.Valid(); err != nil {
 		return models.CheckUpdatesResponse{}, err
 	}

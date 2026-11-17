@@ -3,6 +3,9 @@ package models
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -81,10 +84,8 @@ type CheckUpdatesRequest struct {
 	// describe more without the client that carries it knowing anything about
 	// the contents.
 	//
-	// Bounded, because nothing else bounds it: this endpoint reads the request
-	// body without a size limit, and an unbounded passthrough field is an
-	// unbounded write into whatever stores it.
-	Info json.RawMessage `json:"info,omitempty" validate:"omitempty,max=16384"`
+	// At most MaxProductInfoBytes, so that the document stays small.
+	Info json.RawMessage `json:"info,omitempty"`
 }
 
 // MaxReportedComponents bounds how many artefacts one request may report.
@@ -109,6 +110,9 @@ func (p CheckUpdatesRequest) Valid() error {
 	if total := len(p.Images) + len(p.Files); total > MaxReportedComponents {
 		return fmt.Errorf("a request may report at most %d artefacts, got %d images and %d files",
 			MaxReportedComponents, len(p.Images), len(p.Files))
+	}
+	if err := validProductInfo(p.Info); err != nil {
+		return err
 	}
 	// Splitting the lists was not on its own enough to make "the wrong list"
 	// impossible, and the gap is asymmetric. An image reported under `files`
@@ -264,7 +268,7 @@ func (rn ReleaseNote) Valid() error {
 	return validate.Struct(rn)
 }
 
-// Valid enforces the two invariants no field tag can express.
+// Valid enforces the invariants no field tag can express.
 func (u UpdateInfo) Valid() error {
 	if err := validate.Struct(u); err != nil {
 		return err
@@ -286,10 +290,67 @@ func (u UpdateInfo) Valid() error {
 	if unknown && u.Resolution == "" {
 		return fmt.Errorf("%s: a component is unknown and the stack carries no resolution", u.Stack)
 	}
+	for i := 1; i < len(u.Releases); i++ {
+		if compareReleaseVersions(u.Releases[i].Version, u.Releases[i-1].Version) < 0 {
+			return fmt.Errorf("%s: releases run %s then %s — they must ascend, target last",
+				u.Stack, u.Releases[i-1].Version, u.Releases[i].Version)
+		}
+	}
 	if u.ReleasesTruncated && len(u.Releases) == 0 {
 		return fmt.Errorf("%s: the release list is marked truncated and is empty", u.Stack)
 	}
 	return nil
+}
+
+// compareReleaseVersions orders two versions as the service orders releases,
+// returning -1, 0 or 1. The core is compared by its numbers, a missing minor or
+// patch read as 0. A version with a revision after the dash, a build cut from a
+// branch, sorts below the release of its core; two revisions of one core are
+// equal, since a commit hash carries no order. An edition marker alone ("-ce",
+// "-ee") is not a revision. A value whose core does not read, "latest" among them,
+// sorts below every version.
+func compareReleaseVersions(a, b string) int {
+	coreA, revisedA, okA := releaseVersionOrder(a)
+	coreB, revisedB, okB := releaseVersionOrder(b)
+	switch {
+	case !okA && !okB:
+		return 0
+	case !okA:
+		return -1
+	case !okB:
+		return 1
+	}
+	if order := slices.Compare(coreA[:], coreB[:]); order != 0 {
+		return order
+	}
+	switch {
+	case revisedA == revisedB:
+		return 0
+	case revisedA:
+		return -1
+	default:
+		return 1
+	}
+}
+
+func releaseVersionOrder(version string) (core [3]uint64, revised, ok bool) {
+	version, _, _ = strings.Cut(version, "+")
+	base, prerelease, _ := strings.Cut(version, "-")
+	parts := strings.Split(base, ".")
+	if len(parts) > len(core) {
+		return core, false, false
+	}
+	for i, part := range parts {
+		if part == "" || strings.Trim(part, "0123456789") != "" {
+			return core, false, false
+		}
+		number, err := strconv.ParseUint(part, 10, 64)
+		if err != nil {
+			return core, false, false
+		}
+		core[i] = number
+	}
+	return core, prerelease != "" && prerelease != "ce" && prerelease != "ee", true
 }
 
 // ImageUpdate is one container image the answer refers to.

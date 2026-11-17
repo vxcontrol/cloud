@@ -37,6 +37,9 @@ var (
 	ErrInvalidSignature   = errors.New("invalid signature")          // fatal - crypto issue
 	ErrReplayAttack       = errors.New("replay attack")              // fatal - security issue
 
+	// fatal - the host clock is off; *ClockSkewError carries the server's time (use errors.As)
+	ErrRequestClockSkew = errors.New("request time outside the accepted window")
+
 	// daily/monthly quota errors - all fatal (no auto-retry).
 	// QuotaExceeded* carry a Retry-After cooldown via *QuotaError (use errors.As).
 	ErrQuotaBlocked         = errors.New("endpoint not available for this license tier") // fatal - never retry
@@ -111,6 +114,51 @@ func (e *RateLimitError) Error() string {
 
 func (e *RateLimitError) Unwrap() error { return e.Err }
 
+// ClockSkewError is the refusal of a request whose time, which the SDK takes from the
+// host clock, lies outside the window the server accepts (code RequestClockSkew).
+// ServerTime is the server's clock from the X-Server-Time header of the refusal and
+// HostTime the host clock when the refusal was read; both are zero when the refusal
+// carried no X-Server-Time that parses, and a refusal reported inside an event stream
+// carries none.
+type ClockSkewError struct {
+	ServerTime time.Time
+	HostTime   time.Time
+}
+
+// Skew is how far the host clock is ahead of the server's, negative when it is behind,
+// and zero when the server's time is not known.
+func (e *ClockSkewError) Skew() time.Duration {
+	if e.ServerTime.IsZero() || e.HostTime.IsZero() {
+		return 0
+	}
+	return e.HostTime.Sub(e.ServerTime)
+}
+
+func (e *ClockSkewError) Error() string {
+	switch skew := e.Skew().Round(time.Second); {
+	case skew > 0:
+		return fmt.Sprintf("%s: the host clock is %s ahead of the server", ErrRequestClockSkew, skew)
+	case skew < 0:
+		return fmt.Sprintf("%s: the host clock is %s behind the server", ErrRequestClockSkew, -skew)
+	default:
+		return ErrRequestClockSkew.Error()
+	}
+}
+
+func (e *ClockSkewError) Unwrap() error { return ErrRequestClockSkew }
+
+// hostClock is the wall clock of the host, a variable so that a test can fix it.
+var hostClock = time.Now
+
+// parseServerTime reads the X-Server-Time header (RFC 3339) of a refusal.
+func parseServerTime(header http.Header) (time.Time, bool) {
+	serverTime, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(header.Get(headerXServerTime)))
+	if err != nil {
+		return time.Time{}, false
+	}
+	return serverTime.UTC(), true
+}
+
 // RetryAfterOf extracts the server-suggested wait duration from err, or returns 0.
 // Works through any error wrapping chain, including the context+rate-limit join.
 func RetryAfterOf(err error) time.Duration {
@@ -169,7 +217,7 @@ func isSuccessStatus(code int) bool {
 
 // parseServerError parses a server error response and returns the appropriate
 // error. The response header is inspected for the Retry-After cooldown carried by
-// quota-exceeded responses.
+// quota-exceeded responses and for the server's time a clock-skew refusal carries.
 func parseServerError(statusCode int, header http.Header, body []byte) error {
 	if isSuccessStatus(statusCode) {
 		return nil
@@ -180,7 +228,14 @@ func parseServerError(statusCode int, header http.Header, body []byte) error {
 		return fmt.Errorf("HTTP %d: %w", statusCode, ErrRequestFailed)
 	}
 
-	return ErrorFromCode(serverErr.Code, parseRetryAfter(header))
+	refusal := ErrorFromCode(serverErr.Code, parseRetryAfter(header))
+	if skew, ok := refusal.(*ClockSkewError); ok {
+		if serverTime, ok := parseServerTime(header); ok {
+			skew.ServerTime, skew.HostTime = serverTime, hostClock().UTC()
+		}
+	}
+
+	return refusal
 }
 
 // ErrorFromCode returns the error that a refusal of the server with the given code
@@ -218,6 +273,8 @@ func ErrorFromCode(code string, retryAfter time.Duration) error {
 		return &QuotaError{Err: ErrQuotaExceededDaily, Scope: QuotaScopeDaily, RetryAfter: retryAfter}
 	case "QuotaExceededMonthly":
 		return &QuotaError{Err: ErrQuotaExceededMonthly, Scope: QuotaScopeMonthly, RetryAfter: retryAfter}
+	case "RequestClockSkew":
+		return &ClockSkewError{}
 	default:
 		return fmt.Errorf("%s: %w", code, ErrRequestFailed)
 	}
@@ -258,6 +315,18 @@ func WithMaxRetries(maxRetries int) Option {
 	return func(s *sdk) {
 		s.maxRetries = maxRetries
 	}
+}
+
+// MaxRetriesOf returns how many times a call built with options is made when it is
+// refused for a reason that may pass: the count of WithMaxRetries, DefaultMaxRetries
+// without it, never below 1. A client built over the calls of the SDK reads its own
+// bound from it.
+func MaxRetriesOf(options ...Option) int {
+	s := &sdk{maxRetries: DefaultMaxRetries}
+	for _, option := range options {
+		option(s)
+	}
+	return max(s.maxRetries, 1)
 }
 
 func WithLicenseKey(key string) Option {

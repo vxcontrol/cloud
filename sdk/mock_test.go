@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/google/uuid"
@@ -100,6 +101,13 @@ func loadTestData() *testData {
 	}
 
 	return &td
+}
+
+// fixHostClock makes the SDK read at as the host clock until the test ends.
+func fixHostClock(t *testing.T, at time.Time) {
+	t.Helper()
+	hostClock = func() time.Time { return at }
+	t.Cleanup(func() { hostClock = time.Now })
 }
 
 func newTestSDK() sdk {
